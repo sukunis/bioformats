@@ -2,7 +2,7 @@
  * #%L
  * BSD implementations of Bio-Formats readers and writers
  * %%
- * Copyright (C) 2005 - 2015 Open Microscopy Environment:
+ * Copyright (C) 2005 - 2016 Open Microscopy Environment:
  *   - Board of Regents of the University of Wisconsin-Madison
  *   - Glencoe Software, Inc.
  *   - University of Dundee
@@ -79,6 +79,11 @@ public abstract class BaseTiffReader extends MinimalTiffReader {
     "yyyyMMdd HH:mm:ss",
     "yyyy/MM/dd HH:mm:ss",
     "yyyy-MM-dd'T'HH:mm:ssZ"
+  };
+  
+  public static final String[] DATE_FORMATS_EXT={
+	  "dd.MM.yyyy HH:mm:ss:SSS",
+	  "dd.MM.yyyy HH:mm:ss"
   };
 
   // -- Constructors --
@@ -430,6 +435,9 @@ public abstract class BaseTiffReader extends MinimalTiffReader {
     String date = DateTools.formatDate(creationDate, DATE_FORMATS, ".");
     if (creationDate != null && date == null) {
       LOGGER.warn("unknown creation date format: {}", creationDate);
+      date = DateTools.formatDate(creationDate,DATE_FORMATS_EXT);
+      if(date == null)
+    	  LOGGER.warn("unknown uos creation date format: {}", creationDate);
     }
     creationDate = date;
 

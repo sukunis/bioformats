@@ -1,7 +1,7 @@
 /*
  * #%L
  * OME-BIOFORMATS C++ library for image IO.
- * Copyright © 2006 - 2015 Open Microscopy Environment:
+ * Copyright © 2006 - 2016 Open Microscopy Environment:
  *   - Massachusetts Institute of Technology
  *   - National Institutes of Health
  *   - University of Dundee
@@ -126,20 +126,16 @@ namespace ome
       }
 
       void
-      FormatWriter::close(bool fileOnly)
+      FormatWriter::close(bool /* fileOnly */)
       {
-        if (out)
-          out.reset(); // set to null.
-        if (!fileOnly)
-          {
-            currentId = boost::none;
-            series = 0;
-            plane = 0;
-            compression = boost::none;
-            sequential = false;
-            framesPerSecond = 0;
-            metadataRetrieve.reset();
-          }
+        out.reset(); // set to null.
+        currentId = boost::none;
+        series = 0;
+        plane = 0;
+        compression = boost::none;
+        sequential = false;
+        framesPerSecond = 0;
+        metadataRetrieve.reset();
       }
 
       bool

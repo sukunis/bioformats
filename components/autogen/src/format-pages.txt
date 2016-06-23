@@ -195,7 +195,8 @@ extensions = .svs
 owner = `Aperio <http://www.aperio.com/>`_
 bsd = no
 versions = 8.0, 8.2, 9.0
-weHave = * many SVS datasets \n
+weHave = * many SVS datasets\n
+* `public sample images <http://downloads.openmicroscopy.org/images/SVS/>`__\n
 * an SVS specification document \n
 * the ability to generate additional SVS datasets
 pixelsRating = Very good
@@ -425,7 +426,8 @@ extensions = .tif, .txt, .xml
 developer = `Vale Lab <http://valelab.ucsf.edu/>`_
 bsd = yes
 software = `Micro-Manager <http://micro-manager.org/>`_
-weHave = * many Micro-manager datasets
+weHave = * many Micro-manager datasets\n
+* `public sample images <http://downloads.openmicroscopy.org/images/Micro-Manager/>`__
 pixelsRating = Outstanding
 metadataRating = Very good
 opennessRating = Outstanding
@@ -433,6 +435,13 @@ presenceRating = Fair
 utilityRating = Good
 reader = MicromanagerReader
 mif = true
+notes = - Bio-Formats will recognize a :file:`*metadata.txt` file as part of a\n
+  Micro-Manager fileset if pointed at it and will load the fileset including\n
+  the companion TIFF files.\n
+- If pointed at a companion :file:`.ome.tif` file, Bio-Formats will recognize\n
+  an OME-TIFF format instead. This means it may load the fileset if there are\n
+  multiple .ome.tif but it will not include :file:`*metadata.txt` in this\n
+  fileset and therefore the extended Micro-Manager metadata will be skipped.
 
 [CellH5]
 extensions = .ch5
@@ -450,10 +459,11 @@ writer = CellH5Writer
 mif = true
 
 [Cellomics]
-extensions = .c01
+extensions = .c01, .dib
 developer = `Thermo Fisher Scientific <http://www.thermofisher.com/>`_
 bsd = no
-weHave = * a few Cellomics .c01 datasets
+weHave = * a few Cellomics .c01 datasets\n
+* `public .dib sample images <http://downloads.openmicroscopy.org/images/HCS/BBBC/>`_
 weWant = * a Cellomics .c01 specification document \n
 * more Cellomics .c01 datasets
 pixelsRating = Very good
@@ -497,7 +507,8 @@ owner = `GE Healthcare (formerly Applied Precision) <http://www.gelifesciences.c
 bsd = no
 software = `DeltaVision Opener plugin for ImageJ <http://rsb.info.nih.gov/ij/plugins/track/delta.html>`_
 weHave = * a DV specification document (v2.10 or newer, in HTML) \n
-* numerous DV datasets
+* numerous DV datasets\n
+* `public sample images <http://downloads.openmicroscopy.org/images/DV/>`__
 pixelsRating = Outstanding
 metadataRating = Good
 opennessRating = Good
@@ -957,11 +968,13 @@ utilityRating = Fair
 reader = OBFReader
 mif = true
 
-[InCell 1000]
+[InCell 1000/2000]
+pagename = incell-1000
 extensions = .xdce, .tif
 developer = `GE <http://gelifesciences.com/>`_
 bsd = no
-weHave = * a few InCell 1000 datasets
+weHave = * a few InCell 1000 datasets\n
+* `public InCell 2000 sample images <http://downloads.openmicroscopy.org/images/HCS/INCELL2000/>`_
 weWant = * an InCell 1000 specification document \n
 * more InCell 1000 datasets
 pixelsRating = Very good
@@ -1467,8 +1480,8 @@ notes = .. seealso:: \n
 extensions = .img, .hdr
 developer = `National Institutes of Health <http://www.nih.gov/>`_
 bsd = no
-samples = `Official test data <http://nifti.nimh.nih.gov/nifti-1/data>`_
-weHave = * `NIfTI specification documents <http://nifti.nimh.nih.gov/nifti-1/>`_ \n
+samples = `Official test data <http://afni.nimh.nih.gov/pub/dist/data/>`_
+weHave = * `NIfTI specification documents <http://afni.nimh.nih.gov/pub/dist/doc/nifti/nifti_revised.html>`_ \n
 * several NIfTI datasets
 pixelsRating = Very good
 metadataRating = Good
@@ -1650,9 +1663,10 @@ indexExtensions = .ome.tiff
 extensions = `.ome.tiff <http://www.openmicroscopy.org/site/support/ome-model/ome-tiff/index.html>`_
 developer = `Open Microscopy Environment <http://www.openmicroscopy.org/>`_
 bsd = yes
-versions = 2003FC, 2007-06, 2008-02, 2008-09, 2009-09, 2010-04, 2010-06, 2011-06, 2012-06, 2013-06
-weHave = * an :model_doc:`OME-TIFF specification document <ome-tiff/specification.html>` (from 2006 October 19, in HTML) \n
-* many OME-TIFF datasets \n
+versions = 2003FC, 2007-06, 2008-02, 2008-09, 2009-09, 2010-04, 2010-06, 2011-06, 2012-06, 2013-06, 2015-01
+weHave = * an :model_doc:`OME-TIFF specification document <ome-tiff/specification.html>`\n
+* many OME-TIFF datasets\n
+* `public sample images <http://downloads.openmicroscopy.org/images/OME-TIFF/>`__\n
 * the ability to produce additional datasets
 pixelsRating = Outstanding
 metadataRating = Outstanding
@@ -1673,13 +1687,14 @@ Commercial applications that support OME-TIFF include: \n
   :model_doc:`OME-TIFF technical overview <ome-tiff/index.html>`
 
 [OME-XML]
-indexExtensions = .ome
-extensions = `.ome <http://www.openmicroscopy.org/site/support/ome-model/ome-xml/index.html>`_
+indexExtensions = .ome, .ome.xml
+extensions = `.ome, .ome.xml <http://www.openmicroscopy.org/site/support/ome-model/ome-xml/index.html>`_
 developer = `Open Microscopy Environment <http://www.openmicroscopy.org/>`_
 bsd = yes
-versions = 2003FC, 2007-06, 2008-02, 2008-09, 2009-09, 2010-04, 2010-06, 2011-06, 2012-06, 2013-06
-weHave = * `OME-XML specification documents <http://www.openmicroscopy.org/Schemas/>`_ \n
-* many OME-XML datasets \n
+versions = 2003FC, 2007-06, 2008-02, 2008-09, 2009-09, 2010-04, 2010-06, 2011-06, 2012-06, 2013-06, 2015-01
+weHave = * `OME-XML specification documents <http://www.openmicroscopy.org/Schemas/>`_\n
+* many OME-XML datasets\n
+* `public sample images <http://downloads.openmicroscopy.org/images/OME-XML/>`__\n
 * the ability to produce more datasets
 pixelsRating = Outstanding
 metadataRating = Outstanding
@@ -1782,7 +1797,8 @@ mif = true
 extensions = .tiff, .xml
 developer = `PerkinElmer <http://www.perkinelmer.com/>`_
 bsd = no
-weHave = * a few sample datasets
+weHave = * a few sample datasets\n
+* `public sample images <http://downloads.openmicroscopy.org/images/HCS/Operetta/>`__
 weWant = * an official specification document \n
 * more sample datasets
 pixelsRating = Very good
@@ -2050,11 +2066,11 @@ reader = SMCameraReader
 
 [SPIDER]
 extensions = .spi, .stk
-developer = `Wadsworth Center <http://www.wadsworth.org/spider_doc/spider/docs/spider.html>`_
+developer = `Wadsworth Center <http://spider.wadsworth.org/spider_doc/spider/docs/spider.html>`_
 bsd = no
-software = `SPIDER <http://www.wadsworth.org/spider_doc/spider/docs/spider.html>`_
+software = `SPIDER <http://spider.wadsworth.org/spider_doc/spider/docs/spider.html>`_
 weHave = * a few example datasets \n
-* `official file format documentation <http://www.wadsworth.org/spider_doc/spider/docs/image_doc.html>`_
+* `official file format documentation <http://spider.wadsworth.org/spider_doc/spider/docs/image_doc.html>`_
 pixelsRating = Very good
 metadataRating = Very good
 opennessRating = Outstanding
