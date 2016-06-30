@@ -513,6 +513,12 @@ public class FV1000Reader extends FormatReader {
       creationDate = laser.get("ImageCaputreDate");
       if (creationDate == null) {
         creationDate = laser.get("ImageCaptureDate");
+        if(creationDate == null){
+        	IniTable acqParams = f.getTable("Acquisition Parameters Common");
+        	if(acqParams!=null){
+        		creationDate=acqParams.get("ImageCaputreDate");
+        	}
+        }
       }
 
       index++;
@@ -538,17 +544,13 @@ public class FV1000Reader extends FormatReader {
         	//create name from BF Range and BF Position
         	String range=guiChannel.get("BF Range");
         	String position=guiChannel.get("BF Position");
-        	System.out.println("Range: "+range+", Pos: "+position);
         	int rangeD=0;
         	int posD=0;
         	if(range!=null) rangeD=new Integer(range);
         	if(position!=null)posD=new Integer(position);
-        	System.out.println("Range: "+rangeD+", Pos: "+posD);
         	if(rangeD>0 && posD>0 && posD>rangeD){
         		int in=posD-(rangeD/2);
         		int out=posD+(rangeD/2);
-        		System.out.println("Cut-In: "+in);
-        		System.out.println("Cut-Out: "+out);
         		channel.barrierFilter="BA"+in+"-"+out;
         	}
         }
@@ -1118,7 +1120,6 @@ public class FV1000Reader extends FormatReader {
         String filterID = MetadataTools.createLSID("Filter", 0, channelIndex);
         store.setFilterID(filterID, 0, channelIndex);
         store.setFilterModel(channel.barrierFilter, 0, channelIndex);
-        System.out.println("BarrieFilter "+filterID+" of Channel "+channelIndex);
         filterIDs.add(filterID);
         
         if (channel.barrierFilter.indexOf("-") != -1) {
