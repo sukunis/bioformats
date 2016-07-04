@@ -318,6 +318,19 @@ public class ZeissCZIReader extends FormatReader {
     Arrays.fill(buf, (byte) 0);
     RandomAccessInputStream stream = new RandomAccessInputStream(currentId);
     try {
+      int minTileX = Integer.MAX_VALUE, minTileY = Integer.MAX_VALUE;
+      for (SubBlock plane : planes) {
+        if ((plane.seriesIndex == currentSeries && plane.planeIndex == no) ||
+          (plane.planeIndex == previousChannel && validScanDim))
+        {
+          if (plane.row < minTileY) {
+            minTileY = plane.row;
+          }
+          if (plane.col < minTileX) {
+            minTileX = plane.col;
+          }
+        }
+      }
       for (SubBlock plane : planes) {
         if ((plane.seriesIndex == currentSeries && plane.planeIndex == no) ||
           (plane.planeIndex == previousChannel && validScanDim))
@@ -334,6 +347,11 @@ public class ZeissCZIReader extends FormatReader {
             if (prestitched != null && prestitched && realX == getSizeX() && realY == getSizeY()) {
               tile.x = 0;
               tile.y = 0;
+            }
+            else if (prestitched != null && prestitched) {
+              // normalize the coordinates such that minimum row/col values are 0
+              tile.x -= minTileX;
+              tile.y -= minTileY;
             }
 
             if (tile.intersects(image)) {
@@ -639,7 +657,7 @@ public class ZeissCZIReader extends FormatReader {
     LOGGER.trace("prestitched = {}", prestitched);
     LOGGER.trace("scanDim = {}", scanDim);
 
-    if (mosaics == seriesCount &&
+    if (((mosaics == seriesCount) || (positions == seriesCount)) &&
       seriesCount == (planes.size() / getImageCount()) &&
       prestitched != null && prestitched)
     {
@@ -684,6 +702,10 @@ public class ZeissCZIReader extends FormatReader {
         mosaics = 1;
         angles = 1;
         seriesCount = 1;
+      }
+      else if (seriesCount > mosaics && mosaics > 1 && prestitched) {
+        seriesCount /= mosaics;
+        mosaics = 1;
       }
     }
 
@@ -2724,64 +2746,7 @@ public class ZeissCZIReader extends FormatReader {
     ms0.interleaved = ms0.rgb;
   }
   
-//  private void parseLightSources(NodeList lightSources) throws FormatException
-//  {
-//	  if(lightSources!=null){
-//		  for(int i=0; i<lightSources.getLength();i++){
-//			  Element lightSrc=(Element)lightSources.item(i);
-//			  String model=lightSrc.getAttribute("Name");
-//			  Element LType=getFirstNode(lightSrc,"LightSourceType");
-//			  
-//			  
-//			   String id = MetadataTools.createLSID("LightSource", 0, i);
-//
-//		        store.setDetectorID(id, 0, i);
-//		        String model = detector.getAttribute("Id");
-//		        store.setDetectorModel(model, 0, i);
-//
-//		        String bin = getFirstNodeValue(detector, "Binning");
-//		        if (bin != null) {
-//		          bin = bin.replaceAll(",", "x");
-//		          Binning binning = getBinning(bin);
-//
-//		          if (model != null && model.equals(cameraModel)) {
-//		            for (int image=0; image<getSeriesCount(); image++) {
-//		              for (int c=0; c<getEffectiveSizeC(); c++) {
-//		                store.setDetectorSettingsID(id, image, c);
-//		                store.setDetectorSettingsBinning(binning, image, c);
-//		              }
-//		            }
-//		            hasDetectorSettings = true;
-//		          }
-//		        }
-//			  
-//			 
-//			  if(getFirstNode(lightSrc,"Laser")!=null){
-//				  Element laser = getFirstNode(lightSrc,"Laser");
-//				  System.out.println("LightSrc: Laser: "+model);
-//				  if(model!=null){
-//					  store.setLaserModel(model, 0, i);
-//				  }
-//				  String wl=getFirstNodeValue(laser, "Wavelength");
-//				  if (wl != null) {
-//					  store.setLaserWavelength(new Length(new Double(wl), UNITS.NM), 0, i);
-//				  }
-//				  
-//			  }else if(getFirstNode(lightSrc,"Arc")!=null){
-//				  
-//			  }else if(getFirstNode(lightSrc,"LED")!=null){
-//				  
-//			  }else if(getFirstNode(lightSrc,"Filament")!=null){
-//				  
-//			  }else if(getFirstNode(lightSrc,"GenericExcitationSource")!=null){
-//				  
-//			  }else{
-//				  throw new FormatException("Unknown LightSource Type!");
-//			  }
-//
-//		  }
-//	  }
-//  }
+
 
   private void parseObjectives(NodeList objectives) throws FormatException {
     if (objectives != null) {
