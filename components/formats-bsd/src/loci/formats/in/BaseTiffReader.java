@@ -33,6 +33,12 @@
 package loci.formats.in;
 
 import java.io.IOException;
+import java.text.DateFormat;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.time.format.DateTimeFormatter;
+import java.util.Date;
+import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -49,10 +55,8 @@ import loci.formats.tiff.IFDList;
 import loci.formats.tiff.PhotoInterp;
 import loci.formats.tiff.TiffCompression;
 import loci.formats.tiff.TiffRational;
-
 import ome.xml.model.primitives.PositiveFloat;
 import ome.xml.model.primitives.Timestamp;
-
 import ome.units.quantity.Time;
 import ome.units.quantity.Length;
 import ome.units.UNITS;
@@ -89,7 +93,9 @@ public abstract class BaseTiffReader extends MinimalTiffReader {
   // -- Constructors --
 
   /** Constructs a new BaseTiffReader. */
-  public BaseTiffReader(String name, String suffix) { super(name, suffix); }
+  public BaseTiffReader(String name, String suffix) { 
+	  super(name, suffix);
+  }
 
   /** Constructs a new BaseTiffReader. */
   public BaseTiffReader(String name, String[] suffixes) {
@@ -235,8 +241,18 @@ public abstract class BaseTiffReader extends MinimalTiffReader {
     putInt("Model", firstIFD, IFD.MODEL);
     putInt("MinSampleValue", firstIFD, IFD.MIN_SAMPLE_VALUE);
     putInt("MaxSampleValue", firstIFD, IFD.MAX_SAMPLE_VALUE);
-    putInt("XResolution", firstIFD, IFD.X_RESOLUTION);
-    putInt("YResolution", firstIFD, IFD.Y_RESOLUTION);
+//    putInt("XResolution", firstIFD, IFD.X_RESOLUTION);
+//    putInt("YResolution", firstIFD, IFD.Y_RESOLUTION);
+    
+    TiffRational xResolution = firstIFD.getIFDRationalValue(IFD.X_RESOLUTION);
+    TiffRational yResolution = firstIFD.getIFDRationalValue(IFD.Y_RESOLUTION);
+
+    if (xResolution != null) {
+    	put("XResolution", xResolution.doubleValue());
+    }
+    if (yResolution != null) {
+    	put("YResolution", yResolution.doubleValue());
+    }
 
     int planar = firstIFD.getIFDIntValue(IFD.PLANAR_CONFIGURATION);
     String planarConfig = null;
@@ -435,9 +451,30 @@ public abstract class BaseTiffReader extends MinimalTiffReader {
     String date = DateTools.formatDate(creationDate, DATE_FORMATS, ".");
     if (creationDate != null && date == null) {
       LOGGER.warn("unknown creation date format: {}", creationDate);
+
+      //convert date
       date = DateTools.formatDate(creationDate,DATE_FORMATS_EXT);
-      if(date == null)
-    	  LOGGER.warn("unknown uos creation date format: {}", creationDate);
+      if(date != null){
+    	  LOGGER.info("known uos creation date format: convert to {} ", date);
+    	  String dateformat= DateTools.ISO8601_FORMAT_MS;
+    	  String s=DateTools.formatDate(date,dateformat);
+    	  if(s==null){
+    		  dateformat=DateTools.ISO8601_FORMAT;
+    		  s=DateTools.formatDate(date, dateformat);
+
+    	  }
+    	  DateFormat df=new SimpleDateFormat(dateformat);
+    	  try{
+    		  Date d=df.parse(s);
+//    		  SimpleDateFormat f=new SimpleDateFormat(DateTools.TIMESTAMP_FORMAT);
+    		  SimpleDateFormat f=new SimpleDateFormat(DateTools.ISO8601_FORMAT);
+    		  System.out.println("BaseTiffReader: "+creationDate+" -> "+s+" -> "+f.format(d));
+
+    		  date = f.format(d);
+    	  }catch(Exception e){
+    		  date=s;
+    	  }
+      }
     }
     creationDate = date;
 
@@ -445,6 +482,7 @@ public abstract class BaseTiffReader extends MinimalTiffReader {
 
     if (creationDate != null) {
       store.setImageAcquisitionDate(new Timestamp(creationDate), 0);
+      System.out.println("BaseTiffReader: store acq Time as "+new Timestamp(creationDate).toString());
     }
 
     if (getMetadataOptions().getMetadataLevel() != MetadataLevel.MINIMUM) {
