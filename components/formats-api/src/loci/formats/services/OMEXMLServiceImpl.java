@@ -443,7 +443,17 @@ public class OMEXMLServiceImpl extends AbstractService implements OMEXMLService
       doc = XMLTools.parseDOM(xml);
     }
     catch (ParserConfigurationException exc) { exception = exc; }
-    catch (SAXException exc) { exception = exc; }
+    catch (SAXException exc) {
+    	try {
+    		if (xml != null) {
+    			xml = XMLTools.sanitizeXML(xml);
+    		}
+    		doc = XMLTools.parseDOM(xml);
+    	}
+    	catch (ParserConfigurationException exc2) { exception = exc2; }
+    	catch (SAXException exc2) { exception = exc2; }
+    	catch (IOException exc2) { exception = exc2; }
+    }
     catch (IOException exc) { exception = exc; }
     if (exception != null) {
       LOGGER.info("Malformed OME-XML", exception);
