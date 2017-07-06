@@ -1475,11 +1475,15 @@ public class ZeissCZIReader extends FormatReader {
           Element lightSrcSettingsCont = getFirstNode(channel,"LightSourcesSettings");
           //TODO: could be more than one LightSourceSettings?
           Element lightSrcSettings=getFirstNode(lightSrcSettingsCont,"LightSourceSettings");
-          String intensity=getFirstNodeValue(lightSrcSettings,"Intensity");
-          if(intensity!=null){
-        	  intensity= intensity.substring(0, intensity.indexOf("%"));
-        	  channels.get(i).lightSrcAttenuation=new PercentFraction((float) (Float.valueOf(intensity)/100.0));
-          }
+//          String intensity=getFirstNodeValue(lightSrcSettings,"Intensity");
+//          if(intensity!=null){
+//        	  int indexUnit=intensity.indexOf("%");
+//        	  if(indexUnit!=-1)
+//        		  intensity= intensity.substring(0, indexUnit);
+//        		  
+//        	  System.out.println("ZeissCZIReader: Read Intensity: "+intensity);
+//        	  channels.get(i).lightSrcAttenuation=new PercentFraction((float) (Float.valueOf(intensity)/100.0));
+//          }
           Element lightSrc=getFirstNode(lightSrcSettings,"LightSource");
           if(lightSrc!=null){
         	  String lightSrcID=lightSrc.getAttribute("Id");
