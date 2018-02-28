@@ -1414,6 +1414,26 @@ public final class FormatTools {
     return new Length(value, UNITS.NM);
   }
   
+  
+  /**
+   * Formats the input value for the stage position into a length of the
+   * given unit.
+   *
+   * @param value  the value of the stage position
+   * @param unit   the unit of the stage position. If null will default to Nanometre
+   *
+   * @return       the stage position formatted as a {@link Length}
+
+   */
+  public static Length getStagePosition(Double value, Unit unit) {
+    if (unit != null) {
+        return new Length(value, unit);
+    }
+    return new Length(value, UNITS.NM);
+  }
+  
+  
+  
   /**
    * Formats the input value for the time into a length of the
    * given unit.
