@@ -33,6 +33,12 @@
 package loci.formats.in;
 
 import java.io.IOException;
+import java.text.DateFormat;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.time.format.DateTimeFormatter;
+import java.util.Date;
+import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -49,7 +55,7 @@ import loci.formats.tiff.IFDList;
 import loci.formats.tiff.PhotoInterp;
 import loci.formats.tiff.TiffCompression;
 import loci.formats.tiff.TiffRational;
-
+import ome.xml.model.primitives.PositiveFloat;
 import ome.xml.model.primitives.Timestamp;
 
 import ome.units.quantity.Time;
@@ -78,6 +84,11 @@ public abstract class BaseTiffReader extends MinimalTiffReader {
     "yyyyMMdd HH:mm:ss",
     "yyyy/MM/dd HH:mm:ss",
     "yyyy-MM-dd'T'HH:mm:ssZ"
+  };
+  
+  public static final String[] DATE_FORMATS_EXT={
+	  "dd.MM.yyyy HH:mm:ss:SSS",
+	  "dd.MM.yyyy HH:mm:ss"
   };
 
   // -- Constructors --
@@ -437,6 +448,30 @@ public abstract class BaseTiffReader extends MinimalTiffReader {
     String date = DateTools.formatDate(creationDate, DATE_FORMATS, ".");
     if (creationDate != null && date == null) {
       LOGGER.warn("unknown creation date format: {}", creationDate);
+
+      //convert date
+      date = DateTools.formatDate(creationDate,DATE_FORMATS_EXT);
+      if(date != null){
+    	  LOGGER.info("known uos creation date format: convert to {} ", date);
+    	  String dateformat= DateTools.ISO8601_FORMAT_MS;
+    	  String s=DateTools.formatDate(date,dateformat);
+    	  if(s==null){
+    		  dateformat=DateTools.ISO8601_FORMAT;
+    		  s=DateTools.formatDate(date, dateformat);
+
+    	  }
+    	  DateFormat df=new SimpleDateFormat(dateformat);
+    	  try{
+    		  Date d=df.parse(s);
+//    		  SimpleDateFormat f=new SimpleDateFormat(DateTools.TIMESTAMP_FORMAT);
+    		  SimpleDateFormat f=new SimpleDateFormat(DateTools.ISO8601_FORMAT);
+    		  System.out.println("BaseTiffReader: "+creationDate+" -> "+s+" -> "+f.format(d));
+
+    		  date = f.format(d);
+    	  }catch(Exception e){
+    		  date=s;
+    	  }
+      }
     }
     creationDate = date;
 

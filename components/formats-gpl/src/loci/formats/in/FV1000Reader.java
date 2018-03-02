@@ -525,6 +525,12 @@ public class FV1000Reader extends FormatReader {
       creationDate = laser.get("ImageCaputreDate");
       if (creationDate == null) {
         creationDate = laser.get("ImageCaptureDate");
+        if(creationDate == null){
+        	IniTable acqParams = f.getTable("Acquisition Parameters Common");
+        	if(acqParams!=null){
+        		creationDate=acqParams.get("ImageCaputreDate");
+        	}
+        }
       }
 
       index++;
@@ -536,10 +542,32 @@ public class FV1000Reader extends FormatReader {
       IniTable guiChannel = f.getTable("GUI Channel " + index + " Parameters");
       while (guiChannel != null) {
         ChannelData channel = new ChannelData();
-        channel.gain = DataTools.parseDouble(guiChannel.get("AnalogPMTGain"));
-        channel.voltage = DataTools.parseDouble(
-          guiChannel.get("AnalogPMTVoltage"));
-        channel.barrierFilter = channel.getFilter(guiChannel.get("BF Name"));
+        String gain = guiChannel.get("AnalogPMTGain");
+        if (gain != null) channel.gain = new Double(gain);
+        String voltage = guiChannel.get("AnalogPMTVoltage");
+        if (voltage != null) channel.voltage = new Double(voltage);
+        
+        String offset = guiChannel.get("AnalogPMTOffset");
+        if(offset !=null) channel.offset=new Double(offset);
+        
+        channel.barrierFilter = guiChannel.get("BF Name");
+        if(channel.barrierFilter.equals("null") || channel.barrierFilter.equals("") || channel.barrierFilter.equals("(null)") )
+        {
+        	//create name from BF Range and BF Position
+        	String range=guiChannel.get("BF Range");
+        	String position=guiChannel.get("BF Position");
+        	int rangeD=0;
+        	int posD=0;
+        	if(range!=null) rangeD=new Integer(range);
+        	if(position!=null)posD=new Integer(position);
+        	if(rangeD>0 && posD>0 && posD>rangeD){
+        		int in=posD-(rangeD/2);
+        		int out=posD+(rangeD/2);
+        		channel.barrierFilter="BA"+in+"-"+out;
+        	}
+        }
+        	
+        	
         channel.active = Integer.parseInt(guiChannel.get("CH Activate")) != 0;
         channel.name = guiChannel.get("CH Name");
         channel.dyeName = guiChannel.get("DyeName");
@@ -1056,6 +1084,7 @@ public class FV1000Reader extends FormatReader {
     }
 
     int channelIndex = 0;
+    List<String> filterIDs=new ArrayList<String>();
     for (ChannelData channel : channels) {
       if (!channel.active) continue;
       if (channelIndex >= getEffectiveSizeC()) break;
@@ -1066,11 +1095,15 @@ public class FV1000Reader extends FormatReader {
       store.setDetectorSettingsID(detectorID, 0, channelIndex);
 
       store.setDetectorGain(channel.gain, 0, channelIndex);
+      store.setDetectorSettingsGain(channel.gain, 0, channelIndex);
       ElectricPotential theVoltage = FormatTools.createElectricPotential(channel.voltage, UNITS.VOLT);
       if (theVoltage != null) {
         store.setDetectorVoltage(
               theVoltage, 0, channelIndex);
+        store.setDetectorSettingsVoltage(theVoltage,0,channelIndex);
       }
+      store.setDetectorOffset(channel.offset,0,channelIndex);
+      store.setDetectorSettingsOffset(channel.offset,0,channelIndex);
       store.setDetectorType(getDetectorType("PMT"), 0, channelIndex);
 
       // populate LogicalChannel data
@@ -1100,8 +1133,9 @@ public class FV1000Reader extends FormatReader {
         String filterID = MetadataTools.createLSID("Filter", 0, channelIndex);
         store.setFilterID(filterID, 0, channelIndex);
         store.setFilterModel(channel.barrierFilter, 0, channelIndex);
-
-        if (channel.barrierFilter.indexOf('-') != -1) {
+        filterIDs.add(filterID);
+        
+        if (channel.barrierFilter.indexOf("-") != -1) {
           String[] emValues = channel.barrierFilter.split("-");
           for (int i=0; i<emValues.length; i++) {
             emValues[i] = emValues[i].replaceAll("\\D", "");
@@ -1122,7 +1156,12 @@ public class FV1000Reader extends FormatReader {
           }
           catch (NumberFormatException e) { }
         }
-        store.setLightPathEmissionFilterRef(filterID, 0, channelIndex, 0);
+//        store.setLightPathEmissionFilterRef(filterID, 0, channelIndex, 0);
+        int i=0;
+        for(String fID:filterIDs){
+        	store.setLightPathEmissionFilterRef(fID, 0, channelIndex, i);
+        	i++;
+        }
       }
 
       // populate FilterSet data
@@ -1783,6 +1822,7 @@ public class FV1000Reader extends FormatReader {
     public boolean active;
     public Double gain;
     public Double voltage;
+    public Double offset;
     public String name;
     public String emissionFilter;
     public String excitationFilter;
