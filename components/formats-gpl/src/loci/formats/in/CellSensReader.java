@@ -24,7 +24,7 @@
  */
 
 package loci.formats.in;
-
+import ome.units.quantity.Time;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.ArrayList;
@@ -405,6 +405,9 @@ public class CellSensReader extends FormatReader {
   private int previousTag = 0;
 
   private ArrayList<Pyramid> pyramids = new ArrayList<Pyramid>();
+  
+  /** parent and module names*/
+  private String P_TIMESTAMP = "Timestamp "; 
 
   // -- Constructor --
 
@@ -778,12 +781,23 @@ public class CellSensReader extends FormatReader {
       int ii = coreIndexToSeries(i);
 
       if (pyramid != null) {
-        int nextPlane = 0;
+    	  int nextPlane = 0;
+
+    	  if(pyramid.startTime < pyramid.endTime) {
+        	  Double res=(pyramid.endTime-pyramid.startTime)/core.get(i).sizeT;
+        	  store.setPixelsTimeIncrement(new Time(res, UNITS.MILLISECOND), i);
         
-      store.setStageLabelX(FormatTools.getStagePosition(pyramid.stagePosX, UNITS.MICROM),ii );
-      store.setStageLabelY(FormatTools.getStagePosition(pyramid.stagePosY, UNITS.MICROM),ii );
-        int effectiveSizeC = core.get(i).rgb ? 1 : core.get(i).sizeC;
-        for (int c=0; c<effectiveSizeC; c++) {
+          }
+//          double tI=Math.abs(ms.pixelSize[i].doubleValue() / (ms.sizeT - 1)) / 1000;
+
+    	  store.setStageLabelX(FormatTools.getStagePosition(pyramid.stagePosX, UNITS.MICROM),ii );
+    	  store.setStageLabelY(FormatTools.getStagePosition(pyramid.stagePosY, UNITS.MICROM),ii );
+
+
+
+
+    	  int effectiveSizeC = core.get(i).rgb ? 1 : core.get(i).sizeC;
+    	  for (int c=0; c<effectiveSizeC; c++) {
           store.setDetectorSettingsID(
             MetadataTools.createLSID("Detector", 0, nextPyramid - 1), ii, c);
           store.setDetectorSettingsBinning(
@@ -1402,10 +1416,10 @@ public class CellSensReader extends FormatReader {
         if (extraTag) {
           secondTag = vsi.readInt();
         }
-        LOGGER.debug("  inlineData = {}", inlineData);
-        LOGGER.debug("  extraTag = {}", extraTag);
-        LOGGER.debug("  extendedField = {}", extendedField);
-        LOGGER.debug("  realType = {}", realType);
+//        LOGGER.debug("  inlineData = {}", inlineData);
+//        LOGGER.debug("  extraTag = {}", extraTag);
+//        LOGGER.debug("  extendedField = {}", extendedField);
+//        LOGGER.debug("  realType = {}", realType);
 
         if (tag < 0) {
           if (!inlineData && dataSize + vsi.getFilePointer() < vsi.length()) {
@@ -1740,6 +1754,36 @@ public class CellSensReader extends FormatReader {
                 else if(tagPrefix.startsWith("Stage Position Y")){
                 	pyramid.stagePosY = new Double(value);
                 }
+                else if(tagPrefix.startsWith(P_TIMESTAMP) && pyramid.collectTimes) {
+                	Double thisVal=new Double(value);
+                	//count only the first x ascend values
+                	if(pyramid.lastTimeVal < thisVal)
+                	{                	
+                		if(pyramid.startTime > thisVal) {
+                			pyramid.startTime=thisVal;
+                		}else if(pyramid.endTime < thisVal) {
+                			pyramid.endTime=thisVal;
+                		}
+                		
+                		System.out.println("-->>> StartTime - EndTime: "+pyramid.startTime+" - "+pyramid.endTime);
+                		System.out.println("-->>> \t: "+pyramid.lastTimeVal+" vs "+thisVal);
+                		pyramid.lastTimeVal=thisVal;
+                	}else {
+                		pyramid.collectTimes=false;
+                	}
+                }else if( tagName.equals("Timepoint")) //cellSens version 1.17
+                {
+                	Double thisVal=new Double(value);
+                	if(pyramid.startTime > thisVal) {
+            			pyramid.startTime=thisVal;
+            		}else if(pyramid.endTime < thisVal) {
+            			pyramid.endTime=thisVal;
+            		}
+            		
+            		System.out.println("-->>> StartTime - EndTime: "+pyramid.startTime+" - "+pyramid.endTime);
+            		System.out.println("-->>> \t: "+pyramid.lastTimeVal+" vs "+thisVal);
+            		pyramid.lastTimeVal=thisVal;
+                }
               }
             }
             catch (NumberFormatException e) {
@@ -1853,6 +1897,10 @@ public class CellSensReader extends FormatReader {
 		  break;
 	  case 2008:
 		  return "Channel ";
+	  case 2002://cellSens 1.12, 1.13, 1.18
+	  case TIME_VALUE: //cellSens 1.17
+		  return P_TIMESTAMP;
+	
 	 
 		  
 	  }
@@ -1866,7 +1914,7 @@ public class CellSensReader extends FormatReader {
     switch (tag) {
       case COLLECTION_VOLUME:
       case MULTIDIM_IMAGE_VOLUME:
-      case IMAGE_FRAME_VOLUME:
+//      case IMAGE_FRAME_VOLUME:
       case DIMENSION_SIZE:
       case IMAGE_COLLECTION_PROPERTIES:
 //      case MULTIDIM_STACK_PROPERTIES:
@@ -1878,7 +1926,9 @@ public class CellSensReader extends FormatReader {
         return "";
 //      case OPTICAL_PATH:
 //        return "Microscope ";
-//      
+      case 2002:
+      case TIME_VALUE:
+		  return P_TIMESTAMP;
       case 2417:
         return "Channel Wavelength ";
       case WORKING_DISTANCE:
@@ -1996,8 +2046,6 @@ public class CellSensReader extends FormatReader {
         return "Timelapse start";
       case TIME_INCREMENT:
         return "Timelapse increment";
-      case TIME_VALUE:
-        return "Timestamp";
       case LAMBDA_START:
         return "Lambda start";
       case LAMBDA_INCREMENT:
@@ -2244,6 +2292,9 @@ public class CellSensReader extends FormatReader {
       case 268435456:
         return "Units";
       case VALUE:
+    	if(parent.equals(P_TIMESTAMP)) {
+      		return "Timepoint";
+    	}
         return "Value";
       case 175208:
         return "Snapshot Count";
@@ -2444,6 +2495,11 @@ public class CellSensReader extends FormatReader {
     public String objectiveName;
     public Double refractiveIndex;
     public Double workingDistance;
+    
+    public Double startTime=Double.MAX_VALUE;
+    public Double endTime=0.0;
+    public Double lastTimeVal=0.0;
+    public boolean collectTimes=true;
 
     public Integer width;
     public Integer height;
