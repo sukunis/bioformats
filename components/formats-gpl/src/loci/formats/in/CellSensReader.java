@@ -745,6 +745,7 @@ public class CellSensReader extends FormatReader {
       for (int q=0; q<pyramid.objectiveTypes.size(); q++) {
         if (pyramid.objectiveTypes.get(q) == 3) {
           store.setObjectiveModel(pyramid.objectiveNames.get(q), 0, i);
+          store.setObjectiveManufacturer(pyramid.objectiveManufacturers.get(q),0,i);
           break;
         }
       }
@@ -1664,7 +1665,10 @@ public class CellSensReader extends FormatReader {
                 pyramid.deviceNames.add(value);
               }
               else if (tag == DEVICE_MANUFACTURER) {
-                pyramid.deviceManufacturers.add(value);
+            	  if(parent.equals("Objective "))            	  
+            		  pyramid.objectiveManufacturers.add(value);
+            	  else
+            		  pyramid.deviceManufacturers.add(value);
               }
               else if (tag == EXPOSURE_TIME && tagPrefix.length() == 0) {
                 pyramid.exposureTimes.add(new Long(value));
@@ -2284,6 +2288,8 @@ public class CellSensReader extends FormatReader {
       case 120132:
         return "Device Model";
       case DEVICE_MANUFACTURER:
+    	  if(parent.equals("Objective "))
+    		  return "Objective Manufacturer";
         return "Device Manufacturer";
       case 121102:
         return "Stage Insert Position";
@@ -2533,6 +2539,7 @@ public class CellSensReader extends FormatReader {
     public ArrayList<Double> attenuation = new ArrayList<Double>();
 
     public ArrayList<String> objectiveNames = new ArrayList<String>();
+    public ArrayList<String> objectiveManufacturers = new ArrayList<String>();
     public ArrayList<Integer> objectiveTypes = new ArrayList<Integer>();
     
     //TODO: add element to both arrays at same time
