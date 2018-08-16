@@ -183,25 +183,27 @@ public class LatticeScopeTifReader extends BaseTiffReader {
 		numDetector=1;// default CamA
 		boolean detector2=false;
 		for(String fname:files) {
-			String[] infos=fname.substring(
-					fname.lastIndexOf(experimentName)+experimentName.length()+1,fname.length()).split("_");
-			System.out.println("PARSE INFOS FROM: "+fname.substring(fname.lastIndexOf(experimentName)+experimentName.length()+1,fname.length()));
-			for(int i=0; i<infos.length;i++) {
-				// read out number of channels
-				if(infos[i].contains("ch")) {
-					String channelName=infos[i].substring(2, infos[i].length());
-					if(numChannels < Integer.valueOf(channelName))
-						numChannels = Integer.valueOf(channelName);
-				}
-				//read out number of stacks
-				else if(infos[i].contains("stack")) {
-					String stackNumber=infos[i].substring(5, infos[i].length());
-					if(sizeStack < Integer.valueOf(stackNumber))
-						sizeStack = Integer.valueOf(stackNumber);
-				}
+			if(!fname.contains("Settings")) {
+				String[] infos=fname.substring(
+						fname.lastIndexOf(experimentName)+experimentName.length()+1,fname.length()).split("_");
+				System.out.println("PARSE INFOS FROM: "+fname.substring(fname.lastIndexOf(experimentName)+experimentName.length()+1,fname.length()));
+				for(int i=0; i<infos.length;i++) {
+					// read out number of channels
+					if(infos[i].contains("ch")) {
+						String channelName=infos[i].substring(2, infos[i].length());
+						if(numChannels < Integer.valueOf(channelName))
+							numChannels = Integer.valueOf(channelName);
+					}
+					//read out number of stacks
+					else if(infos[i].contains("stack")) {
+						String stackNumber=infos[i].substring(5, infos[i].length());
+						if(sizeStack < Integer.valueOf(stackNumber))
+							sizeStack = Integer.valueOf(stackNumber);
+					}
 
-				else if(infos[i].contains("CamB")) {
-					detector2=true;
+					else if(infos[i].contains("CamB")) {
+						detector2=true;
+					}
 				}
 			}
 		}
@@ -469,7 +471,7 @@ public class LatticeScopeTifReader extends BaseTiffReader {
 		}
 
 	}
-
+	
 	/**
 	 * Get experiment name from given filename.
 	
@@ -502,7 +504,7 @@ public class LatticeScopeTifReader extends BaseTiffReader {
 	 */
 	class ImageFileFilter implements FileFilter
 	{
-	  private final String[] okFileExtensions = new String[] {"tif"};
+	  private final String[] okFileExtensions = new String[] {"tif","_settings.txt"};
 	  private String filterName;
 
 	  public ImageFileFilter(String name) {
