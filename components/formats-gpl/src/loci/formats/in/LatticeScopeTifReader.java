@@ -7,6 +7,7 @@ import loci.formats.tiff.IFD;
 import loci.formats.tiff.IFDList;
 import loci.formats.tiff.PhotoInterp;
 import loci.formats.tiff.TiffCompression;
+import loci.formats.tiff.TiffParser;
 import loci.formats.tiff.TiffRational;
 import ome.units.UNITS;
 import ome.units.quantity.Length;
@@ -77,7 +78,7 @@ public class LatticeScopeTifReader extends BaseTiffReader {
 	private String channelNumber;
 	private Length excitationWavelength;
 
-
+	private final static Pattern FILENAME_DATE_PATTERN = Pattern.compile(".*_ch.*_stack.*_.*nm_.*msec_.*msecAbs.tif");
 	// -- Constructor --
 
 	/** Constructs a new LatticeScope TIFF reader. */
@@ -91,13 +92,26 @@ public class LatticeScopeTifReader extends BaseTiffReader {
 
 
 	// -- IFormatReader API methods --
-
+	/* @see loci.formats.IFormatReader#isThisType(RandomAccessInputStream) */
+	@Override
+	public boolean isThisType(RandomAccessInputStream stream) throws IOException {
+		
+		    TiffParser tp = new TiffParser(stream);
+		    String comment = tp.getComment();
+		    if (comment == null) return false;
+		    System.out.println("Comment: "+comment);
+		    comment = comment.trim();
+		    return comment.startsWith("ImageJ=");
+	}
 	/* @see loci.formats.IFormatReader#isThisType(String, boolean) */
 	@Override
 	public boolean isThisType(String name, boolean open) {
 
 		if (!open) return false; // not allowed to touch the file system
-
+		if(!checkFileNamePattern(name)) {
+			LOGGER.info("No valid UOS LatticeScope file name!");
+			return false;
+		}
 //		LOGGER.info("## LaticeScopeReader:: isThisType(): "+name);
 //		Location currentFile = new Location(name).getAbsoluteFile();
 //		
@@ -136,20 +150,26 @@ public class LatticeScopeTifReader extends BaseTiffReader {
 //				}
 //			}
 //		}
-//		
-//		
-//		return false;
+		//		
+		//		
+		//		return false;
 
 		return true;
+
+	}
+	private boolean checkFileNamePattern(String name) {
+		Matcher m = FILENAME_DATE_PATTERN.matcher(name);
+		if (m.matches()) return true;
+		return false;
 	}
 
-	 /* @see loci.formats.IFormatReader#getSeriesUsedFiles(boolean) */
-	  @Override
-	  public String[] getUsedFiles(boolean noPixels) {
-		  FormatTools.assertId(currentId, true, 1);
-		  return noPixels ? ArrayUtils.EMPTY_STRING_ARRAY : files;
-	  }
-	
+	/* @see loci.formats.IFormatReader#getSeriesUsedFiles(boolean) */
+	@Override
+	public String[] getUsedFiles(boolean noPixels) {
+		FormatTools.assertId(currentId, true, 1);
+		return noPixels ? ArrayUtils.EMPTY_STRING_ARRAY : files;
+	}
+
 	/**
 	 * check companion channel and stack files in the directory
 	 * @param expName
@@ -234,12 +254,7 @@ public class LatticeScopeTifReader extends BaseTiffReader {
 
 
 
-	/* @see loci.formats.IFormatReader#isThisType(RandomAccessInputStream) */
-	@Override
-	public boolean isThisType(RandomAccessInputStream stream) throws IOException {
-		//	   no information inside the tif file
-		return false;
-	}
+	
 
 	/** Populates the metadata hashtable and metadata store. */
 	@Override
@@ -248,306 +263,6 @@ public class LatticeScopeTifReader extends BaseTiffReader {
 		initMetadataStore();
 	}
 
-
-	/**
-	 * Parses standard metadata.
-	 *
-	 * NOTE: Absolutely <b>no</b> calls to the metadata store should be made in
-	 * this method or methods that override this method. Data <b>will</b> be
-	 * overwritten if you do so.
-	 */
-	protected void initStandardMetadata() throws FormatException, IOException {
-		if (getMetadataOptions().getMetadataLevel() == MetadataLevel.MINIMUM) {
-			return;
-		}
-
-		for (int i=0; i<ifds.size(); i++) {
-			put("PageName #" + i, ifds.get(i), IFD.PAGE_NAME);
-		}
-
-		IFD firstIFD = ifds.get(0);
-		put("ImageWidth", firstIFD, IFD.IMAGE_WIDTH);
-		put("ImageLength", firstIFD, IFD.IMAGE_LENGTH);
-		put("BitsPerSample", firstIFD, IFD.BITS_PER_SAMPLE);
-
-		// retrieve EXIF values, if available
-
-		if (ifds.get(0).containsKey(IFD.EXIF)) {
-			IFDList exifIFDs = tiffParser.getExifIFDs();
-			if (exifIFDs.size() > 0) {
-				IFD exif = exifIFDs.get(0);
-				tiffParser.fillInIFD(exif);
-				for (Integer key : exif.keySet()) {
-					int k = key.intValue();
-					addGlobalMeta(getExifTagName(k), exif.get(key));
-				}
-			}
-		}
-
-		TiffCompression comp = firstIFD.getCompression();
-		put("Compression", comp.getCodecName());
-
-		PhotoInterp photo = firstIFD.getPhotometricInterpretation();
-		String photoInterp = photo.getName();
-		String metaDataPhotoInterp = photo.getMetadataType();
-		put("PhotometricInterpretation", photoInterp);
-		put("MetaDataPhotometricInterpretation", metaDataPhotoInterp);
-
-		putInt("CellWidth", firstIFD, IFD.CELL_WIDTH);
-		putInt("CellLength", firstIFD, IFD.CELL_LENGTH);
-
-		int or = firstIFD.getIFDIntValue(IFD.ORIENTATION);
-
-		// adjust the width and height if necessary
-		if (or == 8) {
-			put("ImageWidth", firstIFD, IFD.IMAGE_LENGTH);
-			put("ImageLength", firstIFD, IFD.IMAGE_WIDTH);
-		}
-
-		String orientation = null;
-		// there is no case 0
-		switch (or) {
-		case 1:
-			orientation = "1st row -> top; 1st column -> left";
-			break;
-		case 2:
-			orientation = "1st row -> top; 1st column -> right";
-			break;
-		case 3:
-			orientation = "1st row -> bottom; 1st column -> right";
-			break;
-		case 4:
-			orientation = "1st row -> bottom; 1st column -> left";
-			break;
-		case 5:
-			orientation = "1st row -> left; 1st column -> top";
-			break;
-		case 6:
-			orientation = "1st row -> right; 1st column -> top";
-			break;
-		case 7:
-			orientation = "1st row -> right; 1st column -> bottom";
-			break;
-		case 8:
-			orientation = "1st row -> left; 1st column -> bottom";
-			break;
-		}
-		put("Orientation", orientation);
-		putInt("SamplesPerPixel", firstIFD, IFD.SAMPLES_PER_PIXEL);
-
-		put("Software", firstIFD, IFD.SOFTWARE);
-		put("Instrument Make", firstIFD, IFD.MAKE);
-		put("Instrument Model", firstIFD, IFD.MODEL);
-		put("Document Name", firstIFD, IFD.DOCUMENT_NAME);
-		put("DateTime", getImageCreationDate());
-		put("Artist", firstIFD, IFD.ARTIST);
-
-		put("HostComputer", firstIFD, IFD.HOST_COMPUTER);
-		put("Copyright", firstIFD, IFD.COPYRIGHT);
-
-		put("NewSubfileType", firstIFD, IFD.NEW_SUBFILE_TYPE);
-
-		int thresh = firstIFD.getIFDIntValue(IFD.THRESHHOLDING);
-		String threshholding = null;
-		switch (thresh) {
-		case 1:
-			threshholding = "No dithering or halftoning";
-			break;
-		case 2:
-			threshholding = "Ordered dithering or halftoning";
-			break;
-		case 3:
-			threshholding = "Randomized error diffusion";
-			break;
-		}
-		put("Threshholding", threshholding);
-
-		int fill = firstIFD.getIFDIntValue(IFD.FILL_ORDER);
-		String fillOrder = null;
-		switch (fill) {
-		case 1:
-			fillOrder = "Pixels with lower column values are stored " +
-					"in the higher order bits of a byte";
-			break;
-		case 2:
-			fillOrder = "Pixels with lower column values are stored " +
-					"in the lower order bits of a byte";
-			break;
-		}
-		put("FillOrder", fillOrder);
-
-		putInt("Make", firstIFD, IFD.MAKE);
-		putInt("Model", firstIFD, IFD.MODEL);
-		putInt("MinSampleValue", firstIFD, IFD.MIN_SAMPLE_VALUE);
-		putInt("MaxSampleValue", firstIFD, IFD.MAX_SAMPLE_VALUE);
-
-		TiffRational xResolution = firstIFD.getIFDRationalValue(IFD.X_RESOLUTION);
-		TiffRational yResolution = firstIFD.getIFDRationalValue(IFD.Y_RESOLUTION);
-
-		if (xResolution != null) {
-			put("XResolution", xResolution.doubleValue());
-		}
-		if (yResolution != null) {
-			put("YResolution", yResolution.doubleValue());
-		}
-
-		int planar = firstIFD.getIFDIntValue(IFD.PLANAR_CONFIGURATION);
-		String planarConfig = null;
-		switch (planar) {
-		case 1:
-			planarConfig = "Chunky";
-			break;
-		case 2:
-			planarConfig = "Planar";
-			break;
-		}
-		put("PlanarConfiguration", planarConfig);
-
-		putInt("XPosition", firstIFD, IFD.X_POSITION);
-		putInt("YPosition", firstIFD, IFD.Y_POSITION);
-		putInt("FreeOffsets", firstIFD, IFD.FREE_OFFSETS);
-		putInt("FreeByteCounts", firstIFD, IFD.FREE_BYTE_COUNTS);
-		putInt("GrayResponseUnit", firstIFD, IFD.GRAY_RESPONSE_UNIT);
-		putInt("GrayResponseCurve", firstIFD, IFD.GRAY_RESPONSE_CURVE);
-		putInt("T4Options", firstIFD, IFD.T4_OPTIONS);
-		putInt("T6Options", firstIFD, IFD.T6_OPTIONS);
-
-		int res = firstIFD.getIFDIntValue(IFD.RESOLUTION_UNIT);
-		String resUnit = null;
-		switch (res) {
-		case 1:
-			resUnit = "None";
-			break;
-		case 2:
-			resUnit = "Inch";
-			break;
-		case 3:
-			resUnit = "Centimeter";
-			break;
-		}
-		put("ResolutionUnit", resUnit);
-
-		putString("PageNumber", firstIFD, IFD.PAGE_NUMBER);
-		putInt("TransferFunction", firstIFD, IFD.TRANSFER_FUNCTION);
-
-		int predict = firstIFD.getIFDIntValue(IFD.PREDICTOR);
-		String predictor = null;
-		switch (predict) {
-		case 1:
-			predictor = "No prediction scheme";
-			break;
-		case 2:
-			predictor = "Horizontal differencing";
-			break;
-		}
-		put("Predictor", predictor);
-
-		putInt("WhitePoint", firstIFD, IFD.WHITE_POINT);
-		putInt("PrimaryChromacities", firstIFD, IFD.PRIMARY_CHROMATICITIES);
-
-		putInt("HalftoneHints", firstIFD, IFD.HALFTONE_HINTS);
-		putInt("TileWidth", firstIFD, IFD.TILE_WIDTH);
-		putInt("TileLength", firstIFD, IFD.TILE_LENGTH);
-		putInt("TileOffsets", firstIFD, IFD.TILE_OFFSETS);
-		putInt("TileByteCounts", firstIFD, IFD.TILE_BYTE_COUNTS);
-
-		int ink = firstIFD.getIFDIntValue(IFD.INK_SET);
-		String inkSet = null;
-		switch (ink) {
-		case 1:
-			inkSet = "CMYK";
-			break;
-		case 2:
-			inkSet = "Other";
-			break;
-		}
-		put("InkSet", inkSet);
-
-		putInt("InkNames", firstIFD, IFD.INK_NAMES);
-		putInt("NumberOfInks", firstIFD, IFD.NUMBER_OF_INKS);
-		putInt("DotRange", firstIFD, IFD.DOT_RANGE);
-		put("TargetPrinter", firstIFD, IFD.TARGET_PRINTER);
-		putInt("ExtraSamples", firstIFD, IFD.EXTRA_SAMPLES);
-
-		int fmt = firstIFD.getIFDIntValue(IFD.SAMPLE_FORMAT);
-		String sampleFormat = null;
-		switch (fmt) {
-		case 1:
-			sampleFormat = "unsigned integer";
-			break;
-		case 2:
-			sampleFormat = "two's complement signed integer";
-			break;
-		case 3:
-			sampleFormat = "IEEE floating point";
-			break;
-		case 4:
-			sampleFormat = "undefined";
-			break;
-		}
-		put("SampleFormat", sampleFormat);
-
-		putInt("SMinSampleValue", firstIFD, IFD.S_MIN_SAMPLE_VALUE);
-		putInt("SMaxSampleValue", firstIFD, IFD.S_MAX_SAMPLE_VALUE);
-		putInt("TransferRange", firstIFD, IFD.TRANSFER_RANGE);
-
-		int jpeg = firstIFD.getIFDIntValue(IFD.JPEG_PROC);
-		String jpegProc = null;
-		switch (jpeg) {
-		case 1:
-			jpegProc = "baseline sequential process";
-			break;
-		case 14:
-			jpegProc = "lossless process with Huffman coding";
-			break;
-		}
-		put("JPEGProc", jpegProc);
-
-		putInt("JPEGInterchangeFormat", firstIFD, IFD.JPEG_INTERCHANGE_FORMAT);
-		putInt("JPEGRestartInterval", firstIFD, IFD.JPEG_RESTART_INTERVAL);
-
-		putInt("JPEGLosslessPredictors", firstIFD, IFD.JPEG_LOSSLESS_PREDICTORS);
-		putInt("JPEGPointTransforms", firstIFD, IFD.JPEG_POINT_TRANSFORMS);
-		putInt("JPEGQTables", firstIFD, IFD.JPEG_Q_TABLES);
-		putInt("JPEGDCTables", firstIFD, IFD.JPEG_DC_TABLES);
-		putInt("JPEGACTables", firstIFD, IFD.JPEG_AC_TABLES);
-		putInt("YCbCrCoefficients", firstIFD, IFD.Y_CB_CR_COEFFICIENTS);
-
-		int ycbcr = firstIFD.getIFDIntValue(IFD.Y_CB_CR_SUB_SAMPLING);
-		String subSampling = null;
-		switch (ycbcr) {
-		case 1:
-			subSampling = "chroma image dimensions = luma image dimensions";
-			break;
-		case 2:
-			subSampling = "chroma image dimensions are " +
-					"half the luma image dimensions";
-			break;
-		case 4:
-			subSampling = "chroma image dimensions are " +
-					"1/4 the luma image dimensions";
-			break;
-		}
-		put("YCbCrSubSampling", subSampling);
-
-		putInt("YCbCrPositioning", firstIFD, IFD.Y_CB_CR_POSITIONING);
-		putInt("ReferenceBlackWhite", firstIFD, IFD.REFERENCE_BLACK_WHITE);
-
-		// bits per sample and number of channels
-		int[] q = firstIFD.getBitsPerSample();
-		int bps = q[0];
-		int numC = q.length;
-
-		// numC isn't set properly if we have an indexed color image, so we need
-		// to reset it here
-
-		if (photo == PhotoInterp.RGB_PALETTE || photo == PhotoInterp.CFA_ARRAY) {
-			numC = 3;
-		}
-
-		put("BitsPerSample", bps);
-		put("NumberOfChannels", numC);
-	}
 
 	/**
 	 * Populates the metadata store using the data parsed in
