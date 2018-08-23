@@ -501,7 +501,7 @@ public abstract class BaseTiffReader extends MinimalTiffReader {
       }
 
       store.setImageDescription(firstIFD.getComment(), 0);
-
+      LOGGER.info("## BaseTiffReader:: ImageDesc: "+firstIFD.getComment());
       // set the X and Y pixel dimensions
 
       double pixX = firstIFD.getXResolution();

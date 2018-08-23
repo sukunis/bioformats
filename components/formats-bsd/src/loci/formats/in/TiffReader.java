@@ -212,6 +212,7 @@ public class TiffReader extends BaseTiffReader {
             checkSuffix(name, COMPANION_SUFFIXES))
           {
             companionFile = new Location(directory, file).getAbsolutePath();
+            LOGGER.info("## TiffReader::Companion File: "+currentName);
             break;
           }
         }
@@ -266,6 +267,7 @@ public class TiffReader extends BaseTiffReader {
     StringTokenizer st = new StringTokenizer(comment, "\n");
     while (st.hasMoreTokens()) {
       String token = st.nextToken();
+      LOGGER.info("## TiffReader:: parse token: "+token);
       String value = null;
       int eq = token.indexOf('=');
       if (eq >= 0) value = token.substring(eq + 1);

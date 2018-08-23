@@ -54,6 +54,9 @@ import loci.formats.tiff.PhotoInterp;
 import loci.formats.tiff.TiffCompression;
 import loci.formats.tiff.TiffParser;
 
+import java.lang.reflect.Array;
+import java.util.Arrays;
+
 /**
  * MinimalTiffReader is the superclass for file format readers compatible with
  * or derived from the TIFF 6.0 file format.
@@ -436,12 +439,27 @@ public class MinimalTiffReader extends FormatReader {
     in.order(little);
 
     LOGGER.info("Reading IFDs");
-
+    
     IFDList allIFDs = tiffParser.getIFDs();
+    if(allIFDs !=null)
+    	LOGGER.info("\t Size IFDList: "+allIFDs.size());
+    else
+    	LOGGER.info("\t Size IFDList: 0");
+
+    
 
     if (allIFDs == null || allIFDs.size() == 0) {
       throw new FormatException("No IFDs found");
     }
+    
+//  for (IFD ifd : allIFDs) {
+//	for (Integer key : ifd.keySet()) {
+//		int k = key.intValue();
+//		String name = IFD.getIFDTagName(k);
+//		String value = prettyValue(ifd.getIFDValue(k), 0);
+//		LOGGER.info("## IDF: "+name+ " = "+value);
+//	}
+//}
 
     ifds = new IFDList();
     thumbnailIFDs = new IFDList();
@@ -635,5 +653,26 @@ public class MinimalTiffReader extends FormatReader {
     tiffParser.setDoCaching(false);
     tiffParser.setUse64BitOffsets(use64Bit);
   }
+  
+  private static String prettyValue(Object value, int indent) {
+	    if (!value.getClass().isArray()) return value.toString();
+
+	    char[] spaceChars = new char[indent];
+	    Arrays.fill(spaceChars, ' ');
+	    String spaces = new String(spaceChars);
+
+	    StringBuilder sb = new StringBuilder();
+	    sb.append("{\n");
+	    for (int i=0; i<Array.getLength(value); i++) {
+	      sb.append(spaces);
+	      sb.append("  ");
+	      Object component = Array.get(value, i);
+	      sb.append(prettyValue(component, indent + 2));
+	      sb.append("\n");
+	    }
+	    sb.append(spaces);
+	    sb.append("}");
+	    return sb.toString();
+	  }
 
 }

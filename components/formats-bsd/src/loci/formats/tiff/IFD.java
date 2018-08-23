@@ -956,27 +956,27 @@ public class IFD extends HashMap<Integer, Object> {
 
   /** Prints the contents of this IFD. */
   public void printIFD() {
-    LOGGER.trace("IFD directory entry values:");
+    LOGGER.info("IFD directory entry values:");
 
     for (Integer tag : keySet()) {
       Object value = get(tag);
       String v = null;
       if (value == null) {
-        LOGGER.trace("\t{}=null", getIFDTagName(tag.intValue()));
+        LOGGER.info("\t{}=null", getIFDTagName(tag.intValue()));
       }
       else if ((value instanceof Boolean) || (value instanceof Number) ||
         (value instanceof String) || (value instanceof PhotoInterp) ||
         (value instanceof TiffCompression) || (value instanceof TiffIFDEntry))
       {
         v = value.toString();
-        LOGGER.trace("\t{}={}", getIFDTagName(tag.intValue()), v);
+        LOGGER.info("\t{}={}", getIFDTagName(tag.intValue()), v);
       }
       else {
         // this is an array of primitive types, Strings, or TiffRationals
-        LOGGER.trace("\t{}=", getIFDTagName(tag.intValue()));
+        LOGGER.info("\t{}=", getIFDTagName(tag.intValue()));
         int nElements = Array.getLength(value);
         for (int i=0; i<nElements; i++) {
-          LOGGER.trace("\t\t{}", Array.get(value, i));
+          LOGGER.info("\t\t{}", Array.get(value, i));
         }
       }
     }
