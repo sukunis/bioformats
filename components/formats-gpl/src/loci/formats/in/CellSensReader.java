@@ -1769,8 +1769,8 @@ public class CellSensReader extends FormatReader {
                 			pyramid.endTime=thisVal;
                 		}
                 		
-                		System.out.println("-->>> StartTime - EndTime: "+pyramid.startTime+" - "+pyramid.endTime);
-                		System.out.println("-->>> \t: "+pyramid.lastTimeVal+" vs "+thisVal);
+//                		System.out.println("-->>> StartTime - EndTime: "+pyramid.startTime+" - "+pyramid.endTime);
+//                		System.out.println("-->>> \t: "+pyramid.lastTimeVal+" vs "+thisVal);
                 		pyramid.lastTimeVal=thisVal;
                 	}else {
                 		pyramid.collectTimes=false;
