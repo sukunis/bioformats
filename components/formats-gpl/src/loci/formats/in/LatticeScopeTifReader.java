@@ -88,6 +88,7 @@ public class LatticeScopeTifReader extends BaseTiffReader {
 	private String detectorModel;
 	private String channelNumber;
 	private Length excitationWavelength;
+	private Double magnification;
 
 	/** class of tags in file */
 	private String tagClass;
@@ -297,6 +298,7 @@ public class LatticeScopeTifReader extends BaseTiffReader {
 				break;
 			case "Magnification ":
 				store.setObjectiveCalibratedMagnification(Double.valueOf(value), 0, 0);
+				magnification=Double.valueOf(value);
 				break;
 			case "Date ":
 				SimpleDateFormat sfdate = new SimpleDateFormat("MM/dd/yyyy hh:mm:ss a");
@@ -310,6 +312,7 @@ public class LatticeScopeTifReader extends BaseTiffReader {
 				}
 				store.setImageAcquisitionDate(new Timestamp(new DateTime(date)), 0);
 				break;
+			
 			default:
 				//				System.out.println("NO Key FOUND");
 			}
@@ -320,6 +323,7 @@ public class LatticeScopeTifReader extends BaseTiffReader {
 					store.setChannelLightSourceSettingsAttenuation(new PercentFraction(Float.valueOf(val[3])), 0, 0);
 				}
 			}
+			
 		}
 
 	}
@@ -424,7 +428,11 @@ public class LatticeScopeTifReader extends BaseTiffReader {
 		setLightSource(store);
 		setObjective(store);
 		initStandardMetadataFromFile(store);
-
+		
+		
+		store.setPixelsPhysicalSizeX(new Length((103.5/1000), UNITS.MICROMETER), 0);
+		store.setPixelsPhysicalSizeY(new Length((103.5/1000), UNITS.MICROMETER), 0);
+			
 		store.setChannelExcitationWavelength(excitationWavelength, 0, 0);
 		store.setChannelName(channelNumber, 0, 0);
 
