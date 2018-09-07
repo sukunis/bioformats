@@ -103,6 +103,7 @@ public class LatticeScopeTifReader extends BaseTiffReader {
 	/** Constructs a new LatticeScope TIFF reader. */
 	public LatticeScopeTifReader() {
 		super("Lattice Scope (TIF)", new String[] {"tif"});
+//		this.hasCompanionFiles=true;
 		suffixSufficient = false;
 		domains = new String[] {FormatTools.LM_DOMAIN};
 		datasetDescription =
@@ -140,13 +141,60 @@ public class LatticeScopeTifReader extends BaseTiffReader {
 		if (m.matches()) return true;
 		return false;
 	}
+	
+//	 /* @see loci.formats.IFormatReader#isSingleFile(String) */
+//	  @Override
+//	  public boolean isSingleFile(String id) throws FormatException, IOException {
+//	    return false;
+//	}
+//	  
+//	  @Override
+//	  public int fileGroupOption( final String id ) throws FormatException, IOException
+//	  {
+//	    return FormatTools.MUST_GROUP;
+//	  }
 
 	/* @see loci.formats.IFormatReader#getSeriesUsedFiles(boolean) */
-	@Override
-	public String[] getUsedFiles(boolean noPixels) {
-		FormatTools.assertId(currentId, true, 1);
-		return noPixels ? ArrayUtils.EMPTY_STRING_ARRAY : files;
-	}
+//	@Override
+//	public String[] getUsedFiles(boolean noPixels) {
+//		FormatTools.assertId(currentId, true, 1);
+//		return noPixels ? ArrayUtils.EMPTY_STRING_ARRAY : new String[] {metaDataFile};//files;
+//	}
+	
+//	/* @see loci.formats.IFormatReader#getSeriesUsedFiles(boolean) */
+//	  @Override
+//	  public String[] getSeriesUsedFiles(boolean noPixels) {
+//		  System.out.println("LatticeScopeReader::getSeriesUsedFiles()");
+//	    FormatTools.assertId(currentId, true, 1);
+//	   
+//	    if(noPixels) {
+//	    	return new String[] {metaDataFile};
+//	    }
+//
+//	    final List<String> fileList = new ArrayList<String>();
+//	    if (files != null) {
+//	      for (String file : files) {
+//	        String f = file.toLowerCase();
+//	        if (!f.endsWith(".txt") )
+//	        {
+//	          if (!fileList.contains(file)) {
+//	        	  System.out.println("series file: "+file);
+//	        	  fileList.add(file);
+//	          }
+//	        }
+//	      }
+//	    }
+////	    if (!noPixels) {
+////	      if (getSeries() == 0 && tiffs != null) {
+////	    	  fileList.addAll(tiffs);
+////	      }
+////	      else if (getSeries() == 1 && previewNames != null) {
+////	    	  fileList.addAll(previewNames);
+////	      }
+////	    }
+//
+//	    return fileList.toArray(new String[0]);
+//	  }
 
 	/**
 	 * check companion channel and stack files in the directory
@@ -246,6 +294,7 @@ public class LatticeScopeTifReader extends BaseTiffReader {
 	private void initStandardMetadataFromFile(MetadataStore store)  {
 		put("File Data","");
 		if(metaDataFile!=null) {
+			System.out.println("LatticeScopeTifReader:: read metadata from file: "+metaDataFile);
 			try(BufferedReader br = new BufferedReader(new FileReader(metaDataFile))) {
 				for(String line; (line = br.readLine()) != null; ) {
 					int index=line.indexOf(":");
@@ -386,20 +435,22 @@ public class LatticeScopeTifReader extends BaseTiffReader {
 			LOGGER.info("## LatticeScopeTifReader:: ImageDesc: "+firstIFD.getComment());
 			// set the X and Y pixel dimensions
 
-			double pixX = firstIFD.getXResolution();
-			double pixY = firstIFD.getYResolution();
+//			double pixX = firstIFD.getXResolution();
+//			double pixY = firstIFD.getYResolution();
 
-			String unit = getResolutionUnitFromComment(firstIFD);
+//			String unit = getResolutionUnitFromComment(firstIFD);
 
-			Length sizeX = FormatTools.getPhysicalSizeX(pixX, unit);
-			Length sizeY = FormatTools.getPhysicalSizeY(pixY, unit);
-
-			if (sizeX != null) {
-				store.setPixelsPhysicalSizeX(sizeX, 0);
-			}
-			if (sizeY != null) {
-				store.setPixelsPhysicalSizeY(sizeY, 0);
-			}
+//			Length sizeX = FormatTools.getPhysicalSizeX(pixX, unit);
+//			Length sizeY = FormatTools.getPhysicalSizeY(pixY, unit);
+//
+//			if (sizeX != null) {
+//				store.setPixelsPhysicalSizeX(sizeX, 0);
+//			}
+//			if (sizeY != null) {
+//				store.setPixelsPhysicalSizeY(sizeY, 0);
+//			}
+			store.setPixelsPhysicalSizeX(new Length((103.5/1000), UNITS.MICROMETER), 0);
+			store.setPixelsPhysicalSizeY(new Length((103.5/1000), UNITS.MICROMETER), 0);
 			store.setPixelsPhysicalSizeZ(null, 0);
 
 			if (exif != null) {
@@ -430,8 +481,7 @@ public class LatticeScopeTifReader extends BaseTiffReader {
 		initStandardMetadataFromFile(store);
 		
 		
-		store.setPixelsPhysicalSizeX(new Length((103.5/1000), UNITS.MICROMETER), 0);
-		store.setPixelsPhysicalSizeY(new Length((103.5/1000), UNITS.MICROMETER), 0);
+		
 			
 		store.setChannelExcitationWavelength(excitationWavelength, 0, 0);
 		store.setChannelName(channelNumber, 0, 0);
