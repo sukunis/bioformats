@@ -57,6 +57,7 @@ import loci.formats.codec.LZWCodec;
 import loci.formats.meta.MetadataStore;
 
 import ome.xml.model.enums.AcquisitionMode;
+import ome.xml.model.enums.ContrastMethod;
 import ome.xml.model.enums.Binning;
 import ome.xml.model.enums.IlluminationType;
 import ome.xml.model.primitives.Color;
@@ -151,6 +152,7 @@ public class ZeissCZIReader extends FormatReader {
   private ArrayList<Channel> channels = new ArrayList<Channel>();
   private ArrayList<String> binnings = new ArrayList<String>();
   private ArrayList<String> detectorRefs = new ArrayList<String>();
+  private ArrayList<String> lightSrcRefs = new ArrayList<String>();
   private ArrayList<Double> timestamps = new ArrayList<Double>();
   private transient ArrayList<String> gains = new ArrayList<String>();
 
@@ -163,6 +165,7 @@ public class ZeissCZIReader extends FormatReader {
   private Boolean prestitched = null;
   private String objectiveSettingsID;
   private boolean hasDetectorSettings = false;
+  private boolean hasLightSrcSettings = false;
   private int scanDim = 1;
 
   private String[] rotationLabels, phaseLabels, illuminationLabels;
@@ -517,6 +520,7 @@ public class ZeissCZIReader extends FormatReader {
       channels.clear();
       binnings.clear();
       detectorRefs.clear();
+      lightSrcRefs.clear();
       timestamps.clear();
       gains.clear();
 
@@ -525,6 +529,7 @@ public class ZeissCZIReader extends FormatReader {
       objectiveSettingsID = null;
       imageName = null;
       hasDetectorSettings = false;
+      hasLightSrcSettings = false;
       scanDim = 1;
 
       rotationLabels = null;
@@ -1112,6 +1117,7 @@ public class ZeissCZIReader extends FormatReader {
 
     firstXML = null;
     canSkipXML = true;
+	currentPath = new Location(currentId).getAbsolutePath();
     for (Segment segment : segments) {
       String path = new Location(segment.filename).getAbsolutePath();
       if (currentPath.equals(path) && segment instanceof Metadata) {
@@ -1390,8 +1396,9 @@ public class ZeissCZIReader extends FormatReader {
           if (channel < channels.size() &&
             channels.get(channel).exposure != null)
           {
+        	  // exposure time in file save in nanoseconds
             store.setPlaneExposureTime(
-              new Time(channels.get(channel).exposure, UNITS.SECOND), i, plane);
+              new Time(channels.get(channel).exposure/1000000, UNITS.MILLISECOND), i, plane);
           }
         }
       }
@@ -1456,6 +1463,9 @@ public class ZeissCZIReader extends FormatReader {
             store.setChannelAcquisitionMode(
               channels.get(c).acquisitionMode, i, c);
           }
+          if(channels.get(c).contrastMethod!=null){
+        	  store.setChannelContrastMethod(channels.get(c).contrastMethod, i, c);
+        }
         }
 
         if (c < detectorRefs.size()) {
@@ -1468,6 +1478,12 @@ public class ZeissCZIReader extends FormatReader {
           if (c < channels.size()) {
             store.setDetectorSettingsGain(channels.get(c).gain, i, c);
           }
+        }
+
+        if(c < lightSrcRefs.size()){
+        	String lightSrc=lightSrcRefs.get(c);
+        	store.setChannelLightSourceSettingsID(lightSrc,i,c);
+        	store.setChannelLightSourceSettingsAttenuation(channels.get(c).lightSrcAttenuation,i,c);
         }
 
         if (c < channels.size()) {
@@ -2056,6 +2072,16 @@ public class ZeissCZIReader extends FormatReader {
             getFirstNodeValue(channel, "ExcitationWavelength");
           channels.get(i).pinhole = getFirstNodeValue(channel, "PinholeSize");
 
+          String exposure=getFirstNodeValue(channel,"ExposureTime");
+          if(exposure!=null){
+        	  channels.get(i).exposure=Double.valueOf(exposure);
+          }
+          
+          String contrastMethod=getFirstNodeValue(channel,"ContrastMethod");
+          if(contrastMethod!=null){
+        	  channels.get(i).contrastMethod = getContrastMethod(contrastMethod);
+          }
+
           channels.get(i).name = channel.getAttribute("Name");
 
           String illumination = getFirstNodeValue(channel, "IlluminationType");
@@ -2097,6 +2123,33 @@ public class ZeissCZIReader extends FormatReader {
           if (filterSet != null) {
             channels.get(i).filterSetRef = filterSet.getAttribute("Id");
           }
+          
+          Element lightSrcSettingsCont = getFirstNode(channel,"LightSourcesSettings");
+          //TODO: could be more than one LightSourceSettings?
+          Element lightSrcSettings=getFirstNode(lightSrcSettingsCont,"LightSourceSettings");
+//          String intensity=getFirstNodeValue(lightSrcSettings,"Intensity");
+//          if(intensity!=null){
+//        	  int indexUnit=intensity.indexOf("%");
+//        	  if(indexUnit!=-1)
+//        		  intensity= intensity.substring(0, indexUnit);
+//        		  
+//        	  System.out.println("ZeissCZIReader: Read Intensity: "+intensity);
+//        	  channels.get(i).lightSrcAttenuation=new PercentFraction((float) (Float.valueOf(intensity)/100.0));
+//          }
+          Element lightSrc=getFirstNode(lightSrcSettings,"LightSource");
+          if(lightSrc!=null){
+        	  String lightSrcID=lightSrc.getAttribute("Id");
+        	  if(lightSrcID.indexOf(" ")!=-1){
+        		  lightSrcID=lightSrcID.substring(lightSrcID.lastIndexOf(" ")+1);
+        }
+        	  if(!lightSrcID.startsWith("LightSource:")){
+        		  lightSrcID="LightSource:"+lightSrcID;
+      }
+        	  lightSrcRefs.add(lightSrcID);
+    }
+
+         
+          
         }
       }
     }
@@ -2147,6 +2200,18 @@ public class ZeissCZIReader extends FormatReader {
       if (lightSources != null) {
         for (int i=0; i<lightSources.getLength(); i++) {
           Element lightSource = (Element) lightSources.item(i);
+          
+          String lightSrcID = lightSource.getAttribute("Id");
+          if (lightSrcID.indexOf(" ") != -1) {
+        	  lightSrcID = lightSrcID.substring(lightSrcID.lastIndexOf(" ") + 1);
+          }
+          if (!lightSrcID.startsWith("LightSource:")) {
+        	  lightSrcID = "LightSource:" + lightSrcID;
+          }
+
+          
+          
+          
           manufacturerNode = getFirstNode(lightSource, "Manufacturer");
 
           String manufacturer =
@@ -2156,9 +2221,16 @@ public class ZeissCZIReader extends FormatReader {
             getFirstNodeValue(manufacturerNode, "SerialNumber");
           String lotNumber = getFirstNodeValue(manufacturerNode, "LotNumber");
 
+          if(manufacturerNode==null){
+			  model=lightSource.getAttribute("Name");
+          }
           String type = getFirstNodeValue(lightSource, "LightSourceType");
           String power = getFirstNodeValue(lightSource, "Power");
-          if ("Laser".equals(type)) {
+          
+          Element types =getFirstNode(lightSource,"LightSourceType");
+          
+          if (getFirstNode(types,"Laser")!=null){//"Laser".equals(type)) {
+        	  store.setLaserID(lightSrcID, 0, i);
             if (power != null) {
               store.setLaserPower(new Power(new Double(power), UNITS.MILLIWATT), 0, i);
             }
@@ -2166,6 +2238,11 @@ public class ZeissCZIReader extends FormatReader {
             store.setLaserManufacturer(manufacturer, 0, i);
             store.setLaserModel(model, 0, i);
             store.setLaserSerialNumber(serialNumber, 0, i);
+            Element laser = getFirstNode(lightSource,"Laser");
+            String wl=getFirstNodeValue(laser, "Wavelength");
+			  if (wl != null) {
+				  store.setLaserWavelength(new Length(new Double(wl), UNITS.NM), 0, i);
+          }
           }
           else if ("Arc".equals(type)) {
             if (power != null) {
@@ -3375,6 +3452,9 @@ public class ZeissCZIReader extends FormatReader {
         String manufacturer =
           getFirstNodeValue(manufacturerNode, "Manufacturer");
         String model = getFirstNodeValue(manufacturerNode, "Model");
+        if(model==null){
+        	model = objective.getAttribute("Name");
+        }
         String serialNumber =
           getFirstNodeValue(manufacturerNode, "SerialNumber");
         String lotNumber = getFirstNodeValue(manufacturerNode, "LotNumber");
@@ -4068,6 +4148,7 @@ public class ZeissCZIReader extends FormatReader {
     public String color;
     public IlluminationType illumination;
     public AcquisitionMode acquisitionMode;
+    public ContrastMethod contrastMethod;
     public String emission;
     public String excitation;
     public String pinhole;
@@ -4075,6 +4156,7 @@ public class ZeissCZIReader extends FormatReader {
     public Double gain;
     public String fluor;
     public String filterSetRef;
+    public PercentFraction lightSrcAttenuation;
   }
 
   static class Coordinate {
