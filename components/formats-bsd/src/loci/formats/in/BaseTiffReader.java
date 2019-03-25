@@ -80,6 +80,12 @@ public abstract class BaseTiffReader extends MinimalTiffReader {
     "yyyy-MM-dd'T'HH:mm:ssZ"
   };
 
+  public static final String[] DATE_FORMATS_EXT={
+	  "dd.MM.yyyy HH:mm:ss:SSS",
+	  "dd.MM.yyyy HH:mm:ss.SSS",
+	  "dd.MM.yyyy HH:mm:ss"
+  };
+
   // -- Constructors --
 
   /** Constructs a new BaseTiffReader. */
