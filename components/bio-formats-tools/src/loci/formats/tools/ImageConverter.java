@@ -32,16 +32,23 @@
 
 package loci.formats.tools;
 
+import com.google.common.base.Joiner;
+
 import java.awt.image.IndexColorModel;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.io.IOException;
+import java.util.Iterator;
 import java.util.HashMap;
+import java.util.TreeMap;
+import java.util.SortedMap;
 
 import loci.common.Constants;
 import loci.common.DataTools;
 import loci.common.DebugTools;
 import loci.common.Location;
+import loci.common.image.IImageScaler;
+import loci.common.image.SimpleImageScaler;
 import loci.common.services.DependencyException;
 import loci.common.services.ServiceException;
 import loci.common.services.ServiceFactory;
@@ -65,6 +72,7 @@ import loci.formats.in.DynamicMetadataOptions;
 import loci.formats.meta.IMetadata;
 import loci.formats.meta.MetadataRetrieve;
 import loci.formats.meta.MetadataStore;
+import loci.formats.ome.OMEPyramidStore;
 import loci.formats.out.TiffWriter;
 import loci.formats.services.OMEXMLService;
 import loci.formats.services.OMEXMLServiceImpl;
@@ -108,6 +116,8 @@ public final class ImageConverter {
   private int saveTileWidth = 0, saveTileHeight = 0;
   private boolean validate = false;
   private boolean zeroPadding = false;
+  private boolean flat = true;
+  private int pyramidScale = 1, pyramidResolutions = 1;
 
   private IFormatReader reader;
   private MinMaxCalculator minMax;
@@ -149,6 +159,7 @@ public final class ImageConverter {
         else if (args[i].equals("-novalid")) validate = false;
         else if (args[i].equals("-validate")) validate = true;
         else if (args[i].equals("-padded")) zeroPadding = true;
+        else if (args[i].equals("-noflat")) flat = false;
         else if (args[i].equals("-option")) {
           options.set(args[++i], args[++i]);
         }
@@ -199,6 +210,27 @@ public final class ImageConverter {
           }
           catch (NumberFormatException e) { }
         }
+        else if (args[i].equals("-pyramid-scale")) {
+          try {
+            pyramidScale = Integer.parseInt(args[++i]);
+            if (pyramidScale <= 0) {
+              LOGGER.error("Invalid pyramid scale: {}", pyramidScale);
+              return false;
+            }
+          }
+          catch (NumberFormatException e) { }
+        }
+        else if (args[i].equals("-pyramid-resolutions")) {
+          try {
+            pyramidResolutions = Integer.parseInt(args[++i]);
+            if (pyramidResolutions <= 0) {
+              LOGGER.error("Invalid pyramid resolution count: {}",
+                pyramidResolutions);
+              return false;
+            }
+          }
+          catch (NumberFormatException e) { }
+        }
         else if (!args[i].equals(CommandLineTools.NO_UPGRADE_CHECK)) {
           LOGGER.error("Found unknown command flag: {}; exiting.", args[i]);
           return false;
@@ -219,6 +251,42 @@ public final class ImageConverter {
     return true;
   }
 
+  /* Return a sorted map of the available extensions per writer */
+  private static SortedMap<String,String> getExtensions() {
+    IFormatWriter[] writers = new ImageWriter().getWriters();
+    SortedMap<String, String> extensions = new TreeMap<String, String>();
+    for (int i=0; i<writers.length; i++) {
+      extensions.put(writers[i].getFormat(),
+        '.' + Joiner.on(", .").join(writers[i].getSuffixes()));
+    }
+    return extensions;
+  }
+
+  /* Return a sorted map of the available compressions per writer */
+  private static SortedMap<String,String> getCompressions() {
+    IFormatWriter[] writers = new ImageWriter().getWriters();
+    SortedMap<String, String> compressions = new TreeMap<String, String>();
+    for (int i=0; i<writers.length; i++) {
+      String[] compressionTypes = writers[i].getCompressionTypes();
+      if (compressionTypes != null) {
+        compressions.put(writers[i].getFormat(),
+          Joiner.on(", ").join(compressionTypes));
+      }
+    }
+    return compressions;
+  }
+
+  /* Formats a sorted map into a string for the utility usage */
+  private static String printList(SortedMap<String,String> map) {
+    StringBuilder sb = new StringBuilder();
+    Iterator it = map.entrySet().iterator();
+    while (it.hasNext()) {
+      SortedMap.Entry pair = (SortedMap.Entry) it.next();
+      sb.append(" * " + pair.getKey() + ": " + pair.getValue() + '\n');
+    }
+    return sb.toString();
+  }
+
   /**
    * Output usage information, using log4j.
    */
@@ -226,11 +294,11 @@ public final class ImageConverter {
     String[] s = {
       "To convert a file between formats, run:",
       "  bfconvert [-debug] [-stitch] [-separate] [-merge] [-expand]",
-      "    [-bigtiff] [-compression codec] [-series series] [-map id]",
-      "    [-range start end] [-crop x,y,w,h] [-channel channel] [-z Z]",
-      "    [-timepoint timepoint] [-nogroup] [-nolookup] [-autoscale]",
-      "    [-version] [-no-upgrade] [-padded] [-option key value]",
-      "    in_file out_file",
+      "    [-bigtiff] [-compression codec] [-series series] [-noflat]",
+      "    [-map id] [-range start end] [-crop x,y,w,h]",
+      "    [-channel channel] [-z Z] [-timepoint timepoint] [-nogroup]",
+      "    [-nolookup] [-autoscale] [-version] [-no-upgrade] [-padded]",
+      "    [-option key value] in_file out_file",
       "",
       "    -version: print the library version and exit",
       " -no-upgrade: do not perform the upgrade check",
@@ -242,6 +310,7 @@ public final class ImageConverter {
       "    -bigtiff: force BigTIFF files to be written",
       "-compression: specify the codec to use when saving images",
       "     -series: specify which image series to convert",
+      "     -noflat: do not flatten subresolutions",
       "        -map: specify file on disk to which name should be mapped",
       "      -range: specify range of planes to convert (inclusive)",
       "    -nogroup: force multi-file datasets to be read as individual" +
@@ -259,6 +328,14 @@ public final class ImageConverter {
       "     -padded: filename indexes for series, z, c and t will be zero padded",
       "     -option: add the specified key/value pair to the options list",
       "",
+      "The extension of the output file specifies the file format to use",
+      "for the conversion. The list of available formats and extensions is:",
+      "",
+      printList(getExtensions()),
+      "Some file formats offer multiple compression schemes that can be set",
+      "using the -compression option. The list of available compressions is:",
+      "",
+      printList(getCompressions()),
       "If any of the following patterns are present in out_file, they will",
       "be replaced with the indicated metadata value from the input file.",
       "",
@@ -290,7 +367,7 @@ public final class ImageConverter {
       "",
       "Each file would have a single image plane."
     };
-    for (int i=0; i<s.length; i++) LOGGER.info(s[i]);
+    for (int i=0; i<s.length; i++) System.out.println(s[i]);
   }
 
   // -- Utility methods --
@@ -313,12 +390,12 @@ public final class ImageConverter {
       return true;
     }
 
-    CommandLineTools.runUpgradeCheck(args);
-
     if (in == null || out == null) {
       printUsage();
       return false;
     }
+
+    CommandLineTools.runUpgradeCheck(args);
 
     if (new Location(out).exists()) {
       if (overwrite == null) {
@@ -369,6 +446,7 @@ public final class ImageConverter {
     reader.setGroupFiles(group);
     reader.setMetadataFiltered(true);
     reader.setOriginalMetadataPopulated(true);
+    reader.setFlattenedResolutions(flat);
     OMEXMLService service = null;
     try {
       ServiceFactory factory = new ServiceFactory();
@@ -426,6 +504,9 @@ public final class ImageConverter {
           while (newRoot.sizeOfImageList() > 0) {
             newRoot.removeImage(newRoot.getImage(0));
           }
+          while (newRoot.sizeOfPlateList() > 0) {
+            newRoot.removePlate(newRoot.getPlate(0));
+          }
           newRoot.addImage(exportImage);
           meta.setRoot(newRoot);
           meta.setPixelsSizeX(new PositiveInteger(width), 0);
@@ -445,6 +526,7 @@ public final class ImageConverter {
             meta.setPixelsSizeT(new PositiveInteger(1), 0);
           }
 
+          setupResolutions(meta);
           writer.setMetadataRetrieve((MetadataRetrieve) meta);
         }
         else {
@@ -467,6 +549,7 @@ public final class ImageConverter {
             }
           }
 
+          setupResolutions(meta);
           writer.setMetadataRetrieve((MetadataRetrieve) meta);
         }
       }
@@ -499,95 +582,109 @@ public final class ImageConverter {
     long timeLastLogged = System.currentTimeMillis();
     for (int q=first; q<last; q++) {
       reader.setSeries(q);
-      firstTile = true;
-
-      if (!dimensionsSet) {
-        width = reader.getSizeX();
-        height = reader.getSizeY();
-      }
-
-      int writerSeries = series == -1 ? q : 0;
-      writer.setSeries(writerSeries);
-      writer.setInterleaved(reader.isInterleaved() && !autoscale);
-      writer.setValidBitsPerPixel(reader.getBitsPerPixel());
-      int numImages = writer.canDoStacks() ? reader.getImageCount() : 1;
-
-      int startPlane = (int) Math.max(0, firstPlane);
-      int endPlane = (int) Math.min(numImages, lastPlane);
-      numImages = endPlane - startPlane;
-
-      if (channel >= 0) {
-        numImages /= reader.getEffectiveSizeC();
-      }
-      if (zSection >= 0) {
-        numImages /= reader.getSizeZ();
-      }
-      if (timepoint >= 0) {
-        numImages /= reader.getSizeT();
-      }
-
-      total += numImages;
-
-      int count = 0;
-      for (int i=startPlane; i<endPlane; i++) {
-        int[] coords = reader.getZCTCoords(i);
-
-        if ((zSection >= 0 && coords[0] != zSection) || (channel >= 0 &&
-          coords[1] != channel) || (timepoint >= 0 && coords[2] != timepoint))
-        {
-          continue;
+      boolean generatePyramid = pyramidResolutions > reader.getResolutionCount();
+      int resolutionCount = generatePyramid ? pyramidResolutions : reader.getResolutionCount();
+      for (int res=0; res<resolutionCount; res++) {
+        if (!generatePyramid) {
+          reader.setResolution(res);
         }
+        firstTile = true;
 
-        String outputName = FormatTools.getFilename(q, i, reader, out, zeroPadding);
-        if (outputName.equals(FormatTools.getTileFilename(0, 0, 0, outputName))) {
-          writer.setId(outputName);
-          if (compression != null) writer.setCompression(compression);
-        }
-        else {
-          int tileNum = outputName.indexOf(FormatTools.TILE_NUM);
-          int tileX = outputName.indexOf(FormatTools.TILE_X);
-          int tileY = outputName.indexOf(FormatTools.TILE_Y);
-          if (tileNum < 0 && (tileX < 0 || tileY < 0)) {
-            throw new FormatException("Invalid file name pattern; " +
-              FormatTools.TILE_NUM + " or both of " + FormatTools.TILE_X +
-              " and " + FormatTools.TILE_Y + " must be specified.");
+        if (!dimensionsSet) {
+          width = reader.getSizeX();
+          height = reader.getSizeY();
+
+          if (generatePyramid && res > 0) {
+            int scale = (int) Math.pow(pyramidScale, res);
+            width /= scale;
+            height /= scale;
           }
         }
 
-        int outputIndex = 0;
-        if (nextOutputIndex.containsKey(outputName)) {
-          outputIndex = nextOutputIndex.get(outputName);
+        int writerSeries = series == -1 ? q : 0;
+        writer.setSeries(writerSeries);
+        writer.setResolution(res);
+        writer.setInterleaved(reader.isInterleaved() && !autoscale);
+        writer.setValidBitsPerPixel(reader.getBitsPerPixel());
+        int numImages = writer.canDoStacks() ? reader.getImageCount() : 1;
+
+        int startPlane = (int) Math.max(0, firstPlane);
+        int endPlane = (int) Math.min(numImages, lastPlane);
+        numImages = endPlane - startPlane;
+
+        if (channel >= 0) {
+          numImages /= reader.getEffectiveSizeC();
+        }
+        if (zSection >= 0) {
+          numImages /= reader.getSizeZ();
+        }
+        if (timepoint >= 0) {
+          numImages /= reader.getSizeT();
         }
 
-        long s = System.currentTimeMillis();
-        long m = convertPlane(writer, i, outputIndex, outputName);
-        long e = System.currentTimeMillis();
-        read += m - s;
-        write += e - m;
+        total += numImages;
 
-        nextOutputIndex.put(outputName, outputIndex + 1);
-        if (i == endPlane - 1) {
-          nextOutputIndex.remove(outputName);
-        }
+        int count = 0;
+        for (int i=startPlane; i<endPlane; i++) {
+          int[] coords = reader.getZCTCoords(i);
 
-        // log number of planes processed every second or so
-        if (count == numImages - 1 || (e - timeLastLogged) / 1000 > 0) {
-          int current = (count - startPlane) + 1;
-          int percent = 100 * current / numImages;
-          StringBuilder sb = new StringBuilder();
-          sb.append("\t");
-          int numSeries = last - first;
-          if (numSeries > 1) {
-            sb.append("Series ");
-            sb.append(q);
-            sb.append(": converted ");
+          if ((zSection >= 0 && coords[0] != zSection) || (channel >= 0 &&
+            coords[1] != channel) || (timepoint >= 0 && coords[2] != timepoint))
+          {
+            continue;
           }
-          else sb.append("Converted ");
-          LOGGER.info(sb.toString() + "{}/{} planes ({}%)",
-            new Object[] {current, numImages, percent});
-          timeLastLogged = e;
+
+          String outputName = FormatTools.getFilename(q, i, reader, out, zeroPadding);
+          if (outputName.equals(FormatTools.getTileFilename(0, 0, 0, outputName))) {
+            writer.setId(outputName);
+            if (compression != null) writer.setCompression(compression);
+          }
+          else {
+            int tileNum = outputName.indexOf(FormatTools.TILE_NUM);
+            int tileX = outputName.indexOf(FormatTools.TILE_X);
+            int tileY = outputName.indexOf(FormatTools.TILE_Y);
+            if (tileNum < 0 && (tileX < 0 || tileY < 0)) {
+              throw new FormatException("Invalid file name pattern; " +
+                FormatTools.TILE_NUM + " or both of " + FormatTools.TILE_X +
+                " and " + FormatTools.TILE_Y + " must be specified.");
+            }
+          }
+
+          int outputIndex = 0;
+          if (nextOutputIndex.containsKey(outputName)) {
+            outputIndex = nextOutputIndex.get(outputName);
+          }
+
+          long s = System.currentTimeMillis();
+          long m = convertPlane(writer, i, outputIndex, outputName);
+          long e = System.currentTimeMillis();
+          read += m - s;
+          write += e - m;
+
+          nextOutputIndex.put(outputName, outputIndex + 1);
+          if (i == endPlane - 1) {
+            nextOutputIndex.remove(outputName);
+          }
+
+          // log number of planes processed every second or so
+          if (count == numImages - 1 || (e - timeLastLogged) / 1000 > 0) {
+            int current = (count - startPlane) + 1;
+            int percent = 100 * current / numImages;
+            StringBuilder sb = new StringBuilder();
+            sb.append("\t");
+            int numSeries = last - first;
+            if (numSeries > 1) {
+              sb.append("Series ");
+              sb.append(q);
+              sb.append(": converted ");
+            }
+            else sb.append("Converted ");
+            LOGGER.info(sb.toString() + "{}/{} planes ({}%)",
+              new Object[] {current, numImages, percent});
+            timeLastLogged = e;
+          }
+          count++;
         }
-        count++;
       }
     }
     writer.close();
@@ -635,8 +732,8 @@ public final class ImageConverter {
       }
     }
 
-    byte[] buf =
-      reader.openBytes(index, xCoordinate, yCoordinate, width, height);
+    byte[] buf = getTile(reader, writer.getResolution(), index,
+      xCoordinate, yCoordinate, width, height);
 
     autoscalePlane(buf, index);
     applyLUT(writer);
@@ -694,8 +791,8 @@ public final class ImageConverter {
         int tileY = yCoordinate + y * h;
         int tileWidth = x < nXTiles - 1 ? w : width - (w * x);
         int tileHeight = y < nYTiles - 1 ? h : height - (h * y);
-        byte[] buf =
-          reader.openBytes(index, tileX, tileY, tileWidth, tileHeight);
+        byte[] buf = getTile(reader, writer.getResolution(),
+          index, tileX, tileY, tileWidth, tileHeight);
 
         String tileName =
           FormatTools.getTileFilename(x, y, y * nXTiles + x, currentFile);
@@ -711,6 +808,7 @@ public final class ImageConverter {
               new PositiveInteger(sizeX), reader.getSeries());
             ((MetadataStore) retrieve).setPixelsSizeY(
               new PositiveInteger(sizeY), reader.getSeries());
+            setupResolutions((IMetadata) retrieve);
           }
 
           writer.close();
@@ -874,6 +972,43 @@ public final class ImageConverter {
         }
       }
     }
+  }
+
+  private void setupResolutions(IMetadata meta) {
+    if (!(meta instanceof OMEPyramidStore)) {
+      return;
+    }
+    for (int series=0; series<meta.getImageCount(); series++) {
+      int width = meta.getPixelsSizeX(series).getValue();
+      int height = meta.getPixelsSizeY(series).getValue();
+      for (int i=1; i<pyramidResolutions; i++) {
+        int scale = (int) Math.pow(pyramidScale, i);
+        ((OMEPyramidStore) meta).setResolutionSizeX(
+          new PositiveInteger(width / scale), series, i);
+        ((OMEPyramidStore) meta).setResolutionSizeY(
+          new PositiveInteger(height / scale), series, i);
+      }
+    }
+  }
+
+  private byte[] getTile(IFormatReader reader, int resolution,
+    int no, int x, int y, int w, int h)
+    throws FormatException, IOException
+  {
+    if (resolution < reader.getResolutionCount()) {
+      reader.setResolution(resolution);
+      return reader.openBytes(no, x, y, w, h);
+    }
+    reader.setResolution(0);
+    IImageScaler scaler = new SimpleImageScaler();
+    int scale = (int) Math.pow(pyramidScale, resolution);
+    byte[] tile =
+      reader.openBytes(no, x * scale, y * scale, w * scale, h * scale);
+    int type = reader.getPixelType();
+    return scaler.downsample(tile, w * scale, h * scale, scale,
+      FormatTools.getBytesPerPixel(type), reader.isLittleEndian(),
+      FormatTools.isFloatingPoint(type), reader.getRGBChannelCount(),
+      reader.isInterleaved());
   }
 
   // -- Main method --
