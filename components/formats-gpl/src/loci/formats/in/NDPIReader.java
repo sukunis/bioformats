@@ -78,6 +78,7 @@ public class NDPIReader extends BaseTiffReader {
   public NDPIReader() {
     super("Hamamatsu NDPI", new String[] {"ndpi"});
     domains = new String[] {FormatTools.HISTOLOGY_DOMAIN};
+    canSeparateSeries = false;
   }
 
   // -- IFormatReader API methods --
@@ -89,11 +90,8 @@ public class NDPIReader extends BaseTiffReader {
   public boolean isThisType(String name, boolean open) {
     boolean isThisType = super.isThisType(name, open);
     if (isThisType && open) {
-      RandomAccessInputStream stream = null;
-      TiffParser parser = null;
-      try {
-        stream = new RandomAccessInputStream(name);
-        parser = new TiffParser(stream);
+      try (RandomAccessInputStream stream = new RandomAccessInputStream(name)) {
+        TiffParser parser = new TiffParser(stream);
         parser.setDoCaching(false);
         parser.setUse64BitOffsets(stream.length() >= Math.pow(2, 32));
         if (!parser.isValidHeader()) {
@@ -108,19 +106,6 @@ public class NDPIReader extends BaseTiffReader {
       catch (IOException e) {
         LOGGER.debug("I/O exception during isThisType() evaluation.", e);
         return false;
-      }
-      finally {
-        try {
-          if (stream != null) {
-            stream.close();
-          }
-          if (parser != null) {
-            parser.getStream().close();
-          }
-        }
-        catch (IOException e) {
-          LOGGER.debug("I/O exception during stream closure.", e);
-        }
       }
     }
     return isThisType;
@@ -408,35 +393,44 @@ public class NDPIReader extends BaseTiffReader {
     core.clear();
     for (int s=0; s<seriesCount; s++) {
       CoreMetadata ms = new CoreMetadata();
-      core.add(ms);
       if (s == 0) {
         ms.resolutionCount = pyramidHeight;
+        core.add(ms);
+      }
+      else if (s < pyramidHeight) {
+        core.add(0, ms);
+      }
+      else {
+        core.add(ms);
       }
     }
 
     for (int s=0; s<core.size(); s++) {
-      IFD ifd = ifds.get(getIFDIndex(s, 0));
-      PhotoInterp p = ifd.getPhotometricInterpretation();
-      int samples = ifd.getSamplesPerPixel();
-      CoreMetadata ms = core.get(s);
-      ms.rgb = samples > 1 || p == PhotoInterp.RGB;
+      for (int r = 0; r < core.size(s); r++) {
+        int index = core.flattenedIndex(s, r);
+        IFD ifd = ifds.get(getIFDIndex(index, 0));
+        PhotoInterp p = ifd.getPhotometricInterpretation();
+        int samples = ifd.getSamplesPerPixel();
+        CoreMetadata ms = core.get(s, r);
+        ms.rgb = samples > 1 || p == PhotoInterp.RGB;
 
-      ms.sizeX = (int) ifd.getImageWidth();
-      ms.sizeY = (int) ifd.getImageLength();
-      ms.sizeZ = s < pyramidHeight ? sizeZ : 1;
-      ms.sizeT = 1;
-      ms.sizeC = ms.rgb ? samples : 1;
-      ms.littleEndian = ifd.isLittleEndian();
-      ms.indexed = p == PhotoInterp.RGB_PALETTE &&
-        (get8BitLookupTable() != null || get16BitLookupTable() != null);
-      ms.imageCount = ms.sizeZ * ms.sizeT;
-      ms.pixelType = ifd.getPixelType();
-      ms.metadataComplete = true;
-      ms.interleaved =
-        ms.sizeX > MAX_SIZE && ms.sizeY > MAX_SIZE;
-      ms.falseColor = false;
-      ms.dimensionOrder = "XYCZT";
-      ms.thumbnail = s != 0;
+        ms.sizeX = (int) ifd.getImageWidth();
+        ms.sizeY = (int) ifd.getImageLength();
+        ms.sizeZ = index < pyramidHeight ? sizeZ : 1;
+        ms.sizeT = 1;
+        ms.sizeC = ms.rgb ? samples : 1;
+        ms.littleEndian = ifd.isLittleEndian();
+        ms.indexed = p == PhotoInterp.RGB_PALETTE &&
+          (get8BitLookupTable() != null || get16BitLookupTable() != null);
+        ms.imageCount = ms.sizeZ * ms.sizeT;
+        ms.pixelType = ifd.getPixelType();
+        ms.metadataComplete = true;
+        ms.interleaved =
+          ms.sizeX > MAX_SIZE && ms.sizeY > MAX_SIZE;
+        ms.falseColor = false;
+        ms.dimensionOrder = "XYCZT";
+        ms.thumbnail = index != 0;
+      }
     }
 
     String metadataTag = ifds.get(0).getIFDStringValue(METADATA_TAG);
