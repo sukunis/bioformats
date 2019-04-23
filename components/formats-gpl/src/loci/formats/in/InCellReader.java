@@ -42,6 +42,7 @@ import loci.formats.FormatException;
 import loci.formats.FormatReader;
 import loci.formats.FormatTools;
 import loci.formats.MetadataTools;
+import loci.formats.meta.IMinMaxStore;
 import loci.formats.meta.MetadataStore;
 
 import ome.xml.model.enums.Binning;
@@ -551,8 +552,8 @@ public class InCellReader extends FormatReader {
 
     store.setPlateID(MetadataTools.createLSID("Plate", 0), 0);
     store.setPlateName(plateName, 0);
-    store.setPlateRowNamingConvention(getNamingConvention(rowNaming), 0);
-    store.setPlateColumnNamingConvention(getNamingConvention(colNaming), 0);
+    store.setPlateRowNamingConvention(MetadataTools.getNamingConvention(rowNaming), 0);
+    store.setPlateColumnNamingConvention(MetadataTools.getNamingConvention(colNaming), 0);
     store.setPlateRows(new PositiveInteger(wellRows), 0);
     store.setPlateColumns(new PositiveInteger(wellCols), 0);
 
@@ -668,6 +669,7 @@ public class InCellReader extends FormatReader {
         int field = getFieldFromSeries(i);
         int timepoint = oneTimepointPerSeries ?
           i % channelsPerTimepoint.size() : 0;
+        Double[][] minMax = new Double[getEffectiveSizeC()][2];
         for (int time=0; time<getSizeT(); time++) {
           if (!oneTimepointPerSeries) timepoint = time;
           int c = channelsPerTimepoint.get(timepoint).intValue();
@@ -685,6 +687,18 @@ public class InCellReader extends FormatReader {
             store.setPlanePositionX(posX.get(field), i, plane);
             store.setPlanePositionY(posY.get(field), i, plane);
             store.setPlanePositionZ(img.zPosition, i, plane);
+
+            int channel = getZCTCoords(plane)[1];
+            if (img.min != null && (minMax[channel][0] == null ||
+              img.min < minMax[channel][0]))
+            {
+              minMax[channel][0] = img.min;
+            }
+            if (img.max != null && (minMax[channel][1] == null ||
+              img.max > minMax[channel][1]))
+            {
+              minMax[channel][1] = img.max;
+            }
           }
         }
 
@@ -716,6 +730,11 @@ public class InCellReader extends FormatReader {
             if (gain != null) {
               store.setDetectorSettingsGain(gain, i, q);
             }
+          }
+          LOGGER.trace("series {} channel {}: min = {}, max = {}", i, q, minMax[q][0], minMax[q][1]);
+          if (store instanceof IMinMaxStore) {
+            IMinMaxStore minMaxStore = (IMinMaxStore) store;
+            minMaxStore.setChannelGlobalMinMax(q, minMax[q][0], minMax[q][1], i);
           }
         }
         if (temperature != null) {
@@ -767,6 +786,7 @@ public class InCellReader extends FormatReader {
     private int nChannels = 0;
     private boolean doT = true;
     private boolean doZ = true;
+    private Image lastImage = null;
 
     @Override
     public void endElement(String uri, String localName, String qName) {
@@ -863,6 +883,13 @@ public class InCellReader extends FormatReader {
         img.isTiff = currentImageFile.endsWith(".tif") ||
           currentImageFile.endsWith(".tiff");
         imageFiles[wellRow * wellCols + wellCol][field][t][index] = img;
+        lastImage = img;
+      }
+      else if (qName.equals("MinMaxMean")) {
+        if (lastImage != null) {
+          lastImage.min = DataTools.parseDouble(attributes.getValue("min"));
+          lastImage.max = DataTools.parseDouble(attributes.getValue("max"));
+        }
       }
       else if (qName.equals("offset_point")) {
         fieldCount++;
@@ -975,7 +1002,7 @@ public class InCellReader extends FormatReader {
         store.setExperimentID(experimentID, 0);
         try {
           store.setExperimentType(
-            getExperimentType(attributes.getValue("type")), 0);
+            MetadataTools.getExperimentType(attributes.getValue("type")), 0);
         }
         catch (FormatException e) {
           LOGGER.warn("", e);
@@ -1016,7 +1043,7 @@ public class InCellReader extends FormatReader {
         store.setObjectiveLensNA(new Double(
           attributes.getValue("numerical_aperture")), 0, 0);
         try {
-         store.setObjectiveImmersion(getImmersion("Other"), 0, 0);
+         store.setObjectiveImmersion(MetadataTools.getImmersion("Other"), 0, 0);
         }
         catch (FormatException e) {
           LOGGER.warn("", e);
@@ -1028,7 +1055,7 @@ public class InCellReader extends FormatReader {
         store.setObjectiveManufacturer(tokens[0], 0, 0);
         String correction = tokens.length > 2 ? tokens[2] : "Other";
         try {
-          store.setObjectiveCorrection(getCorrection(correction), 0, 0);
+          store.setObjectiveCorrection(MetadataTools.getCorrection(correction), 0, 0);
         }
         catch (FormatException e) {
           LOGGER.warn("", e);
@@ -1053,7 +1080,7 @@ public class InCellReader extends FormatReader {
       else if (qName.equals("Camera")) {
         store.setDetectorModel(attributes.getValue("name"), 0, 0);
         try {
-          store.setDetectorType(getDetectorType("Other"), 0, 0);
+          store.setDetectorType(MetadataTools.getDetectorType("Other"), 0, 0);
         }
         catch (FormatException e) {
           LOGGER.warn("", e);
@@ -1062,7 +1089,7 @@ public class InCellReader extends FormatReader {
       else if (qName.equals("Binning")) {
         String binning = attributes.getValue("value");
         try {
-          bin = getBinning(binning);
+          bin = MetadataTools.getBinning(binning);
         }
         catch (FormatException e) { }
       }
@@ -1117,6 +1144,8 @@ public class InCellReader extends FormatReader {
     public boolean isTiff;
     public Double deltaT, exposure;
     public Length zPosition;
+    public Double min;
+    public Double max;
   }
 
 }

@@ -1,8 +1,10 @@
 # This document is a configuration file identifying all file format readers
 # available to Bio-Formats, and the order in which they should be used.
-# Please do not edit unless you know what you are doing (see reader-guide.txt).
+# Please do not edit unless you know what you are doing, see
+# https://docs.openmicroscopy.org/latest/bio-formats/developers/reader-guide.html
 
 loci.formats.in.FilePatternReader     # pattern
+loci.formats.in.URLReader[type=external] # urlreader
 
 # readers for compressed/archive files
 loci.formats.in.ZipReader             # zip
@@ -95,6 +97,8 @@ loci.formats.in.IM3Reader             # im3
 loci.formats.in.I2IReader             # i2i
 loci.formats.in.SPEReader             # spe
 loci.formats.in.OIRReader             # oir
+loci.formats.in.KLBReader             # klb
+loci.formats.in.MicroCTReader         # vff
 
 # multi-extension messes
 loci.formats.in.JEOLReader            # dat, img, par
@@ -114,6 +118,7 @@ loci.formats.in.OperettaReader        # xml, tif, tiff
 loci.formats.in.InveonReader          # hdr, ct.img, cat, ...
 loci.formats.in.CellVoyagerReader     # xml, tif
 loci.formats.in.ColumbusReader        # xml, tif
+loci.formats.in.CV7000Reader          # wpi
 
 # standard PIC reader must go last (it accepts any PIC)
 loci.formats.in.BioRadReader          # pic
@@ -153,7 +158,7 @@ loci.formats.in.LeicaReader           # lei, tif
 loci.formats.in.NikonReader           # nef, tif
 loci.formats.in.FluoviewReader        # tif
 loci.formats.in.PrairieReader         # xml, cfg, tif
-loci.formats.in.MetamorphReader       # stk, tif, nd
+loci.formats.in.MetamorphReader       # stk, tif, nd, scan
 loci.formats.in.MicromanagerReader    # txt, tif
 loci.formats.in.ImprovisionTiffReader # tif
 loci.formats.in.MetamorphTiffReader   # tif
