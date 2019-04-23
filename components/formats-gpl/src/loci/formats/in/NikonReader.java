@@ -117,6 +117,7 @@ public class NikonReader extends BaseTiffReader {
     suffixSufficient = false;
     domains = new String[] {FormatTools.GRAPHICS_DOMAIN};
     mergeSubIFDs = true;
+    canSeparateSeries = false;
   }
 
   // -- IFormatReader API methods --
@@ -308,7 +309,7 @@ public class NikonReader extends BaseTiffReader {
     // the actual image data is stored in IFDs referenced by the SubIFD tag
     // in the 'real' IFD
 
-    CoreMetadata m = core.get(0);
+    CoreMetadata m = core.get(0, 0);
 
     m.imageCount = ifds.size();
 
@@ -354,11 +355,10 @@ public class NikonReader extends BaseTiffReader {
               b, 0, 10, Constants.ENCODING).startsWith("Nikon") ? 10 : 0;
             byte[] buf = new byte[b.length];
             System.arraycopy(b, extra, buf, 0, buf.length - extra);
-            RandomAccessInputStream makerNote =
-              new RandomAccessInputStream(buf);
-            TiffParser tp = new TiffParser(makerNote);
             IFD note = null;
-            try {
+            try (RandomAccessInputStream makerNote =
+                  new RandomAccessInputStream(buf)) {
+              TiffParser tp = new TiffParser(makerNote);
               note = tp.getFirstIFD();
             }
             catch (Exception e) {
@@ -426,7 +426,6 @@ public class NikonReader extends BaseTiffReader {
                 }
               }
             }
-            makerNote.close();
           }
         }
       }
@@ -446,7 +445,7 @@ public class NikonReader extends BaseTiffReader {
     }
     ifds.set(0, original);
 
-    CoreMetadata m = core.get(0);
+    CoreMetadata m = core.get(0, 0);
 
     m.imageCount = 1;
     m.sizeT = 1;
