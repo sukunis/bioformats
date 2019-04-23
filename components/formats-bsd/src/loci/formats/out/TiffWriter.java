@@ -204,9 +204,8 @@ public class TiffWriter extends FormatWriter {
   public void saveBytes(int no, byte[] buf, IFD ifd)
     throws IOException, FormatException
   {
-    MetadataRetrieve r = getMetadataRetrieve();
-    int w = r.getPixelsSizeX(series).getValue().intValue();
-    int h = r.getPixelsSizeY(series).getValue().intValue();
+    int w = getSizeX();
+    int h = getSizeY();
     saveBytes(no, buf, ifd, 0, 0, w, h);
   }
 
@@ -224,15 +223,14 @@ public class TiffWriter extends FormatWriter {
     int type = FormatTools.pixelTypeFromString(
         retrieve.getPixelsType(series).toString());
     int index = no;
-    int imageWidth = retrieve.getPixelsSizeX(series).getValue().intValue();
-    int imageHeight = retrieve.getPixelsSizeY(series).getValue().intValue();
     int currentTileSizeX = getTileSizeX();
     int currentTileSizeY = getTileSizeY();
-    if (currentTileSizeX != imageWidth || currentTileSizeY != imageHeight) {
+    boolean usingTiling = currentTileSizeX > 0 && currentTileSizeY > 0;
+    if (usingTiling) {
       ifd.put(new Integer(IFD.TILE_WIDTH), new Long(currentTileSizeX));
       ifd.put(new Integer(IFD.TILE_LENGTH), new Long(currentTileSizeY));
     }
-    if (currentTileSizeX < w || currentTileSizeY < h) {
+    if (usingTiling && (currentTileSizeX < w || currentTileSizeY < h)) {
       int numTilesX = (w + (x % currentTileSizeX) + currentTileSizeX - 1) / currentTileSizeX;
       int numTilesY = (h + (y % currentTileSizeY) + currentTileSizeY - 1) / currentTileSizeY;
       for (int yTileIndex = 0; yTileIndex < numTilesY; yTileIndex++) {
@@ -255,8 +253,11 @@ public class TiffWriter extends FormatWriter {
             }
           }
 
+          boolean lastPlane = no == getPlaneCount() - 1;
+          boolean lastSeries = getSeries() == retrieve.getImageCount() - 1;
+          boolean lastResolution = getResolution() == getResolutionCount() - 1;
           tiffSaver.writeImage(tileBuf, ifd, index, type, tileParams.x, tileParams.y, tileParams.width, tileParams.height,
-          no == getPlaneCount() - 1 && getSeries() == retrieve.getImageCount() - 1);
+            lastPlane && lastSeries && lastResolution);
         }
       }
     }
@@ -272,8 +273,11 @@ public class TiffWriter extends FormatWriter {
         }
       }
 
+      boolean lastPlane = no == getPlaneCount() - 1;
+      boolean lastSeries = getSeries() == retrieve.getImageCount() - 1;
+      boolean lastResolution = getResolution() == getResolutionCount() - 1;
       tiffSaver.writeImage(buf, ifd, index, type, x, y, w, h,
-      no == getPlaneCount() -1 && getSeries() == retrieve.getImageCount() - 1);
+        lastPlane && lastSeries && lastResolution);
     }
   }
 
@@ -300,14 +304,15 @@ public class TiffWriter extends FormatWriter {
       if (!initialized[series][no]) {
         initialized[series][no] = true;
 
-        RandomAccessInputStream tmp = createInputStream();
-        if (tmp.length() == 0) {
-          synchronized (this) {
-            // write TIFF header
-            tiffSaver.writeHeader();
+        try (RandomAccessInputStream tmp = createInputStream()) {
+          tmp.order(littleEndian);
+          if (tmp.length() == 0) {
+            synchronized (this) {
+              // write TIFF header
+              tiffSaver.writeHeader();
+            }
           }
         }
-        tmp.close();
       }
     }
 
@@ -345,8 +350,8 @@ public class TiffWriter extends FormatWriter {
       }
     }
 
-    int width = retrieve.getPixelsSizeX(series).getValue().intValue();
-    int height = retrieve.getPixelsSizeY(series).getValue().intValue();
+    int width = getSizeX();
+    int height = getSizeY();
     ifd.put(new Integer(IFD.IMAGE_WIDTH), new Long(width));
     ifd.put(new Integer(IFD.IMAGE_LENGTH), new Long(height));
 
@@ -403,10 +408,15 @@ public class TiffWriter extends FormatWriter {
       "ImageJ=\nhyperstack=true\nimages=" + (channels * z * t) + "\nchannels=" +
       channels + "\nslices=" + z + "\nframes=" + t);
 
-    int index = no;
-    for (int i=0; i<getSeries(); i++) {
-      index += getPlaneCount(i);
+    int index = (no * getResolutionCount()) + getResolution();
+    int currentSeries = getSeries();
+    int currentResolution = getResolution();
+    for (int i=0; i<currentSeries; i++) {
+      setSeries(i);
+      index += (getPlaneCount() * getResolutionCount());
     }
+    setSeries(currentSeries);
+    setResolution(currentResolution);
     return index;
   }
 
@@ -431,7 +441,7 @@ public class TiffWriter extends FormatWriter {
   public int getPlaneCount() {
     return getPlaneCount(series);
   }
-  
+
   // -- IFormatWriter API methods --
 
   /**
@@ -443,19 +453,13 @@ public class TiffWriter extends FormatWriter {
   {
     IFD ifd = new IFD();
     if (!sequential) {
-      TiffParser parser = new TiffParser(currentId);
-      try {
+      try (RandomAccessInputStream stream = new RandomAccessInputStream(currentId)) {
+        TiffParser parser = new TiffParser(stream);
         long[] ifdOffsets = parser.getIFDOffsets();
         if (no < ifdOffsets.length) {
           ifd = parser.getIFD(ifdOffsets[no]);
         }
         saveBytes(no, buf, ifd, x, y, w, h);
-      }
-      finally {
-        RandomAccessInputStream tiffParserStream = parser.getStream();
-        if (tiffParserStream != null) {
-          tiffParserStream.close();
-        }
       }
     }
     else {
@@ -528,7 +532,10 @@ public class TiffWriter extends FormatWriter {
   @Override
   public int setTileSizeX(int tileSize) throws FormatException {
     tileSizeX = super.setTileSizeX(tileSize);
-    if (tileSize < TILE_GRANULARITY) {
+    if (tileSize == 0) {
+      tileSizeX = 0;
+    }
+    else if (tileSize < TILE_GRANULARITY) {
       tileSizeX = TILE_GRANULARITY;
     }
     else {
@@ -548,7 +555,10 @@ public class TiffWriter extends FormatWriter {
   @Override
   public int setTileSizeY(int tileSize) throws FormatException {
     tileSizeY = super.setTileSizeY(tileSize);
-    if (tileSize < TILE_GRANULARITY) {
+    if (tileSize == 0) {
+      tileSizeY = 0;
+    }
+    else if (tileSize < TILE_GRANULARITY) {
       tileSizeY = TILE_GRANULARITY;
     }
     else {

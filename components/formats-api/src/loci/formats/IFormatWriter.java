@@ -34,6 +34,7 @@ package loci.formats;
 
 import java.awt.image.ColorModel;
 import java.io.IOException;
+import java.util.List;
 
 import loci.common.Region;
 import loci.formats.codec.CodecOptions;
@@ -42,7 +43,7 @@ import loci.formats.meta.MetadataRetrieve;
 /**
  * Interface for all biological file format writers.
  */
-public interface IFormatWriter extends IFormatHandler {
+public interface IFormatWriter extends IFormatHandler, IPyramidHandler {
 
   /**
    * Saves the given image to the current series in the current file.
@@ -203,7 +204,7 @@ public interface IFormatWriter extends IFormatHandler {
 
   /**
    * Retrieves the current tile width
-   * Defaults to full image width if not supported
+   * Defaults to 0 if not supported
    * @return The current tile width being used
    * @throws FormatException Image metadata including Pixels Size X must be set prior to calling getTileSizeX()
    */
@@ -211,16 +212,16 @@ public interface IFormatWriter extends IFormatHandler {
 
   /**
    * Will attempt to set the tile width to the desired value and return the actual value which will be used
-   * @param tileSize The tile width you wish to use
+   * @param tileSize The tile width you wish to use. Setting to 0 will disable tiling
    * @return The tile width which will actually be used, this may differ from the value requested.
    *         If the requested value is not supported the writer will return and use the closest appropriate value.
-   * @throws FormatException Tile size must be greater than 0 and less than the image width
+   * @throws FormatException Tile size must be greater than or equal to 0 and less than the image width
    */
   int setTileSizeX(int tileSize) throws FormatException;
 
   /**
    * Retrieves the current tile height
-   * Defaults to full image height if not supported
+   * Defaults to 0 if not supported
    * @return The current tile height being used
    * @throws FormatException Image metadata including Pixels Size Y must be set prior to calling getTileSizeY()
    */
@@ -228,11 +229,23 @@ public interface IFormatWriter extends IFormatHandler {
 
   /**
    * Will attempt to set the tile height to the desired value and return the actual value which will be used
-   * @param tileSize The tile height you wish to use
+   * @param tileSize The tile height you wish to use. Setting to 0 will disable tiling
    * @return The tile height which will actually be used, this may differ from the value requested.
    *         If the requested value is not supported the writer will return and use the closest appropriate value.
-   * @throws FormatException Tile size must be greater than 0 and less than the image height
+   * @throws FormatException Tile size must be greater than or equal to 0 and less than the image height
    */
   int setTileSizeY(int tileSize) throws FormatException;
+
+  /**
+   * Specify a list of resolution objects for the current series.
+   * If resolutions are specified using this method, then any resolution
+   * data supplied via the MetadataRetrieve will be ignored.
+   */
+  void setResolutions(List<Resolution> resolutions);
+
+  /**
+   * Get a list of resolution objects for the current series.
+   */
+  List<Resolution> getResolutions();
 
 }

@@ -161,20 +161,21 @@ public class MetamorphTiffReader extends BaseTiffReader {
     else {
       s = new RandomAccessInputStream(files[0]);
     }
-    TiffParser parser = new TiffParser(s);
-    int ndx = getSeries() * getSizeZ() * getSizeT() + no;
-    int[] pos = getZCTCoords(no);
-    if (dualCamera) {
-      int channel = pos[1];
-      pos[1] = 0;
-      ndx = getSeries() * getSizeZ() * getSizeT() +
-        FormatTools.positionToRaster(new int[] {getSizeZ(), 1, getSizeT()}, pos);
-      pos[1] = channel;
+    try (RandomAccessInputStream stream = s) {
+      TiffParser parser = new TiffParser(s);
+      int ndx = getSeries() * getSizeZ() * getSizeT() + no;
+      int[] pos = getZCTCoords(no);
+      if (dualCamera) {
+        int channel = pos[1];
+        pos[1] = 0;
+        ndx = getSeries() * getSizeZ() * getSizeT() +
+          FormatTools.positionToRaster(new int[] {getSizeZ(), 1, getSizeT()}, pos);
+        pos[1] = channel;
+      }
+      IFD ifd = files.length == 1 ? ifds.get(ndx) : parser.getFirstIFD();
+      int realX = dualCamera ? (pos[1] == 0 ? x : x + pos[1] * getSizeX()) : x;
+      parser.getSamples(ifd, buf, realX, y, w, h);
     }
-    IFD ifd = files.length == 1 ? ifds.get(ndx) : parser.getFirstIFD();
-    int realX = dualCamera ? (pos[1] == 0 ? x : x + pos[1] * getSizeX()) : x;
-    parser.getSamples(ifd, buf, realX, y, w, h);
-    s.close();
 
     return buf;
   }
@@ -191,7 +192,7 @@ public class MetamorphTiffReader extends BaseTiffReader {
     final List<Length> stageX = new ArrayList<Length>();
     final List<Length> stageY = new ArrayList<Length>();
 
-    CoreMetadata m = core.get(0);
+    CoreMetadata m = core.get(0, 0);
 
     String filename = id.substring(id.lastIndexOf(File.separator) + 1);
     filename = filename.substring(0, filename.indexOf('.'));
@@ -622,12 +623,12 @@ public class MetamorphTiffReader extends BaseTiffReader {
   private void parseFile(String tiff, MetamorphHandler handler)
     throws IOException
   {
-    RandomAccessInputStream s = new RandomAccessInputStream(tiff);
-    TiffParser parser = new TiffParser(s);
-    IFD firstIFD = parser.getFirstIFD();
-    String xml = XMLTools.sanitizeXML(firstIFD.getComment());
-    XMLTools.parseXML(xml, handler);
-    s.close();
+      try (RandomAccessInputStream s = new RandomAccessInputStream(tiff)) {
+        TiffParser parser = new TiffParser(s);
+        IFD firstIFD = parser.getFirstIFD();
+        String xml = XMLTools.sanitizeXML(firstIFD.getComment());
+        XMLTools.parseXML(xml, handler);
+      }
   }
 
   // -- Helper classes --
