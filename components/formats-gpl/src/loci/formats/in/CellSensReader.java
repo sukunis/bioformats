@@ -56,6 +56,7 @@ import loci.formats.tiff.TiffParser;
 
 import ome.units.UNITS;
 import ome.xml.model.primitives.Timestamp;
+import ome.units.quantity.Time;
 
 /**
  * CellSensReader is the file format reader for cellSens .vsi files.
@@ -280,6 +281,9 @@ public class CellSensReader extends FormatReader {
 
   private static final int CHANNEL_NAME = 2419;
 
+  private static final int STAGE_POS_X=21007;
+  private static final int STAGE_POS_Y=21008;
+
   // Dimension types
   private static final int Z = 1;
   private static final int T = 2;
@@ -360,6 +364,7 @@ public class CellSensReader extends FormatReader {
   private static final int CHANNEL_OVERFLOW = 2073;
 
   // Objective data
+  private static final int OBJECTIVE_VOL=206182;
   private static final int OBJECTIVE_MAG = 120060;
   private static final int NUMERICAL_APERTURE = 120061;
   private static final int WORKING_DISTANCE = 120062;
@@ -372,6 +377,9 @@ public class CellSensReader extends FormatReader {
   private static final int DEVICE_SUBTYPE = 120130;
   private static final int DEVICE_MANUFACTURER = 120133;
   private static final int VALUE = 268435458;
+
+  private static final int INSTRUMENT_VOLUME=2043;
+  private static final int MICROSCOPE_VOLUME=2005;
 
   // -- Fields --
 
@@ -408,6 +416,9 @@ public class CellSensReader extends FormatReader {
   private transient int channelCount = 0;
   private transient int zCount = 0;
 
+  /** parent and module names*/
+  private String P_TIMESTAMP = "Timestamp ";
+  
   // -- Constructor --
 
   /** Constructs a new cellSens reader. */
@@ -642,9 +653,9 @@ public class CellSensReader extends FormatReader {
     ifds = parser.getMainIFDs();
 
     try (RandomAccessInputStream vsi = new RandomAccessInputStream(id)) {
-      vsi.order(parser.getStream().isLittleEndian());
-      vsi.seek(8);
-      readTags(vsi, false, "");
+    vsi.order(parser.getStream().isLittleEndian());
+    vsi.seek(8);
+    readTags(vsi, false, "",0,"");
     }
 
     ArrayList<String> files = new ArrayList<String>();
@@ -811,8 +822,9 @@ public class CellSensReader extends FormatReader {
         FormatTools.createLength(pyramid.workingDistance, UNITS.MICROMETER), 0, i);
 
       for (int q=0; q<pyramid.objectiveTypes.size(); q++) {
-        if (pyramid.objectiveTypes.get(q) == 1) {
+        if (pyramid.objectiveTypes.get(q) == 3) {
           store.setObjectiveModel(pyramid.objectiveNames.get(q), 0, i);
+          store.setObjectiveManufacturer(pyramid.objectiveManufacturers.get(q),0,i);
           break;
         }
       }
@@ -833,7 +845,7 @@ public class CellSensReader extends FormatReader {
           if (q < pyramid.deviceManufacturers.size()) {
             store.setDetectorManufacturer(pyramid.deviceManufacturers.get(q), 0, i);
           }
-          store.setDetectorType(MetadataTools.getDetectorType("CCD"), 0, i);
+          store.setDetectorType(getDetectorType("CMOS"), 0, i);
           break;
         }
       }
@@ -853,6 +865,20 @@ public class CellSensReader extends FormatReader {
 
       if (pyramid != null) {
         int nextPlane = 0;
+
+    	  if(pyramid.startTime < pyramid.endTime) {
+        	  Double res=(pyramid.endTime-pyramid.startTime)/core.get(i).sizeT;
+        	  store.setPixelsTimeIncrement(new Time(res, UNITS.MILLISECOND), i);
+        
+          }
+//          double tI=Math.abs(ms.pixelSize[i].doubleValue() / (ms.sizeT - 1)) / 1000;
+
+    	  store.setStageLabelX(FormatTools.getStagePosition(pyramid.stagePosX, UNITS.MICROM),ii );
+    	  store.setStageLabelY(FormatTools.getStagePosition(pyramid.stagePosY, UNITS.MICROM),ii );
+
+
+
+
         int effectiveSizeC = core.get(i).rgb ? 1 : core.get(i).sizeC;
         for (int c=0; c<effectiveSizeC; c++) {
           store.setDetectorSettingsID(
@@ -903,14 +929,14 @@ public class CellSensReader extends FormatReader {
                 store.setPlanePositionZ(
                   FormatTools.createLength(pyramid.zValues.get(z),
                   UNITS.MICROMETER), ii, nextPlane);
-              }
+            }
               else if (pyramid.zStart != null && pyramid.zIncrement != null) {
                 store.setPlanePositionZ(
                   FormatTools.createLength(pyramid.zStart + (z * pyramid.zIncrement),
                   UNITS.MICROMETER), ii, nextPlane);
-              }
-            }
           }
+        }
+      }
         }
       }
 
@@ -1040,60 +1066,60 @@ public class CellSensReader extends FormatReader {
     IFormatReader reader = null;
     try (RandomAccessInputStream ets =
       new RandomAccessInputStream(fileMap.get(getCoreIndex()))) {
-      ets.seek(offset);
-      CodecOptions options = new CodecOptions();
-      options.interleaved = isInterleaved();
-      options.littleEndian = isLittleEndian();
-      int tileSize = getTileSize();
-      if (tileSize == 0) {
-        tileSize = tileX.get(getCoreIndex()) * tileY.get(getCoreIndex()) * 10;
-      }
-      options.maxBytes = (int) (offset + tileSize);
+    ets.seek(offset);
+    CodecOptions options = new CodecOptions();
+    options.interleaved = isInterleaved();
+    options.littleEndian = isLittleEndian();
+    int tileSize = getTileSize();
+    if (tileSize == 0) {
+      tileSize = tileX.get(getCoreIndex()) * tileY.get(getCoreIndex()) * 10;
+    }
+    options.maxBytes = (int) (offset + tileSize);
 
       
-      long end = index < tileOffsets.get(getCoreIndex()).length - 1 ?
-        tileOffsets.get(getCoreIndex())[index + 1] : ets.length();
+    long end = index < tileOffsets.get(getCoreIndex()).length - 1 ?
+      tileOffsets.get(getCoreIndex())[index + 1] : ets.length();
 
-      String file = null;
+    String file = null;
 
-      switch (compressionType.get(getCoreIndex())) {
-        case RAW:
-          buf = new byte[tileSize];
-          ets.read(buf);
-          break;
-        case JPEG:
-          Codec codec = new JPEGCodec();
-          buf = codec.decompress(ets, options);
-          break;
-        case JPEG_2000:
-          codec = new JPEG2000Codec();
-          buf = codec.decompress(ets, options);
-          break;
-        case JPEG_LOSSLESS:
-          codec = new LosslessJPEGCodec();
-          buf = codec.decompress(ets, options);
-          break;
-        case PNG:
-          file = "tile.png";
-          reader = new APNGReader();
-        case BMP:
-          if (reader == null) {
-            file = "tile.bmp";
-            reader = new BMPReader();
-          }
+    switch (compressionType.get(getCoreIndex())) {
+      case RAW:
+        buf = new byte[tileSize];
+        ets.read(buf);
+        break;
+      case JPEG:
+        Codec codec = new JPEGCodec();
+        buf = codec.decompress(ets, options);
+        break;
+      case JPEG_2000:
+        codec = new JPEG2000Codec();
+        buf = codec.decompress(ets, options);
+        break;
+      case JPEG_LOSSLESS:
+        codec = new LosslessJPEGCodec();
+        buf = codec.decompress(ets, options);
+        break;
+      case PNG:
+        file = "tile.png";
+        reader = new APNGReader();
+      case BMP:
+        if (reader == null) {
+          file = "tile.bmp";
+          reader = new BMPReader();
+        }
 
-          byte[] b = new byte[(int) (end - offset)];
-          ets.read(b);
-          Location.mapFile(file, new ByteArrayHandle(b));
-          reader.setId(file);
-          buf = reader.openBytes(0);
-          Location.mapFile(file, null);
-          break;
-      }
+        byte[] b = new byte[(int) (end - offset)];
+        ets.read(b);
+        Location.mapFile(file, new ByteArrayHandle(b));
+        reader.setId(file);
+        buf = reader.openBytes(0);
+        Location.mapFile(file, null);
+        break;
+    }
     } finally {
-      if (reader != null) {
-        reader.close();
-      }
+    if (reader != null) {
+      reader.close();
+    }
     }
     return buf;
   }
@@ -1419,8 +1445,13 @@ public class CellSensReader extends FormatReader {
     }
   }
 
-  private void readTags(RandomAccessInputStream vsi, boolean populateMetadata, String tagPrefix) {
+  private void readTags(RandomAccessInputStream vsi, boolean populateMetadata, String tagPrefix, int recDepth,String parent) {
     try {
+    	
+      String intend="";
+      for(int i=0; i<recDepth; i++){
+    	  intend+="|\t";
+      }
       // read the VSI header
       long fp = vsi.getFilePointer();
       if (fp + 24 >= vsi.length()) {
@@ -1515,12 +1546,17 @@ public class CellSensReader extends FormatReader {
             dimensionTag = secondTag;
             inDimensionProperties = true;
           }
+          
+          String tagN=getVolumeName(tag,tagPrefix);
+//          LOGGER.info(intend+"|---tag #{}: [fT={}, tag={}, nF={}, eT={}, eF={}, rT={}],{}::{}::{} [1]",
+//                  new Object[] {i, fieldType, tag, nextField,extraTag, extendedField,realType,parent,tagPrefix,tagN});
           long endPointer = vsi.getFilePointer() + dataSize;
+          int newRecDepth=recDepth+1;
           while (vsi.getFilePointer() < endPointer &&
             vsi.getFilePointer() < vsi.length())
           {
             long start = vsi.getFilePointer();
-            readTags(vsi, populateMetadata || inDimensionProperties, getVolumeName(tag));
+            readTags(vsi, populateMetadata || inDimensionProperties, tagN,newRecDepth,parent);
             long end = vsi.getFilePointer();
             if (start >= end) {
               break;
@@ -1534,9 +1570,10 @@ public class CellSensReader extends FormatReader {
         else if (extendedField && (realType == PROPERTY_SET_VOLUME ||
           realType == NEW_MDIM_VOLUME_HEADER))
         {
+          
           long start = vsi.getFilePointer();
           String tagName = realType == NEW_MDIM_VOLUME_HEADER ?
-            getVolumeName(tag) : tagPrefix;
+            getVolumeName(tag,tagPrefix) : tagPrefix;
           if (tagName.isEmpty() && realType == NEW_MDIM_VOLUME_HEADER) {
             switch (tag) {
               case Z_START:
@@ -1550,10 +1587,39 @@ public class CellSensReader extends FormatReader {
                 break;
             }
           }
-          readTags(vsi, tag != 2037, tagName);
+//          readTags(vsi, tag != 2037, tagName);
+
+
+          long endPointer = vsi.getFilePointer() + nextField;
+          int newRecDepth=recDepth+1;
+          
+          String newParent=getVolumeParentName(tag,parent);
+          newParent=newParent.equals("")? parent : newParent;
+//          LOGGER.info("## GET_VOLUME_PARENT_NAME: tag= "+tag+", prefix= "+parent+" -> "+newParent);
+          
+          if(tagName.isEmpty() &&realType == NEW_MDIM_VOLUME_HEADER )
+        		  tagName=getVolumeName(tag,newParent) ;
+        else
+        	tagName=newParent;
+//          LOGGER.info("## GET_VOLUME_NAME: tag= "+tag+", prefix= "+newParent+" -> name= "+tagName);
+
+//          LOGGER.info(intend+"|---tag #{}: [fT={}, tag={}, nF={}, eT={}, eF={}, rT={}], {}::{}::{} [2] ",
+//        		  new Object[] {i, fieldType, tag, nextField,extraTag, extendedField,realType,newParent,tagPrefix, tagName});
+          
+        
+
+          while (vsi.getFilePointer() < endPointer &&
+            vsi.getFilePointer() < vsi.length())
+          {
+            readTags(vsi, tag != 2037, tagName,newRecDepth,newParent);
+            long end = vsi.getFilePointer();
+            if (start == end) {
+              break;
+            }
+         }
         }
         else {
-          String tagName = getTagName(tag);
+          String tagName = getTagName(tag,parent);
           String value = inlineData ? String.valueOf(dataSize) : " ";
 
           Pyramid pyramid =
@@ -1721,6 +1787,9 @@ public class CellSensReader extends FormatReader {
                 pyramid.deviceNames.add(value);
               }
               else if (tag == DEVICE_MANUFACTURER) {
+            	  if(parent.equals("Objective "))            	  
+            		  pyramid.objectiveManufacturers.add(value);
+            	  else
                 pyramid.deviceManufacturers.add(value);
               }
               else if (tag == EXPOSURE_TIME && tagPrefix.length() == 0) {
@@ -1744,11 +1813,23 @@ public class CellSensReader extends FormatReader {
               else if (tag == WORKING_DISTANCE) {
                 pyramid.workingDistance = new Double(value);
               }
-              else if (tag == OBJECTIVE_NAME) {
+              else if(tag==STAGE_POS_X){
+            	  pyramid.stagePosX=new Double(value);
+              }
+              else if(tag==STAGE_POS_Y){
+            	  pyramid.stagePosY=new Double(value);
+              }
+              else if (tag == OBJECTIVE_NAME && dataSize>0) {
+            	  if(parent.equals("Objective "))            	  
                 pyramid.objectiveNames.add(value);
+            	  else
+            		  pyramid.filterNames.add(value);
               }
               else if (tag == OBJECTIVE_TYPE) {
+            	  if(parent.equals("Objective "))
                 pyramid.objectiveTypes.add(new Integer(value));
+            	  else if(new Integer(value)!=1)// type=1-> empty name in example vsi
+            		  pyramid.filterTypes.add(new Integer(value));
               }
               else if (tag == BIT_DEPTH) {
                 pyramid.bitDepth = new Integer(value);
@@ -1758,6 +1839,9 @@ public class CellSensReader extends FormatReader {
               }
               else if (tag == Y_BINNING) {
                 pyramid.binningY = new Integer(value);
+              }
+              else if (tag == CLIPPING){
+            	 pyramid.subarray = value;
               }
               else if (tag == CAMERA_GAIN) {
                 pyramid.gain = new Double(value);
@@ -1790,14 +1874,52 @@ public class CellSensReader extends FormatReader {
                 else if (tagPrefix.startsWith("Objective Working Distance")) {
                   pyramid.workingDistance = new Double(value);
                 }
+                else if(tagPrefix.startsWith("Stage Position X")){
+                	pyramid.stagePosX = new Double(value);
+                }
+                else if(tagPrefix.startsWith("Stage Position Y")){
+                	pyramid.stagePosY = new Double(value);
+                }
                 else if (tagPrefix.equals("Z start position")) {
                   pyramid.zStart = DataTools.parseDouble(value);
-                }
+              }
+               
                 else if (tagPrefix.equals("Z increment")) {
                   pyramid.zIncrement = DataTools.parseDouble(value);
                 }
                 else if (tagPrefix.equals("Z value")) {
                   pyramid.zValues.add(DataTools.parseDouble(value));
+                }
+                
+                else if(tagPrefix.startsWith(P_TIMESTAMP) && pyramid.collectTimes) {
+                	Double thisVal=new Double(value);
+                	//count only the first x ascend values
+                	if(pyramid.lastTimeVal < thisVal)
+                	{                	
+                		if(pyramid.startTime > thisVal) {
+                			pyramid.startTime=thisVal;
+                		}else if(pyramid.endTime < thisVal) {
+                			pyramid.endTime=thisVal;
+                		}
+                		
+//                		System.out.println("-->>> StartTime - EndTime: "+pyramid.startTime+" - "+pyramid.endTime);
+//                		System.out.println("-->>> \t: "+pyramid.lastTimeVal+" vs "+thisVal);
+                		pyramid.lastTimeVal=thisVal;
+                	}else {
+                		pyramid.collectTimes=false;
+                	}
+                }else if( tagName.equals("Timepoint")) //cellSens version 1.17
+                {
+                	Double thisVal=new Double(value);
+                	if(pyramid.startTime > thisVal) {
+            			pyramid.startTime=thisVal;
+            		}else if(pyramid.endTime < thisVal) {
+            			pyramid.endTime=thisVal;
+            		}
+            		
+            		System.out.println("-->>> StartTime - EndTime: "+pyramid.startTime+" - "+pyramid.endTime);
+            		System.out.println("-->>> \t: "+pyramid.lastTimeVal+" vs "+thisVal);
+            		pyramid.lastTimeVal=thisVal;
                 }
               }
             }
@@ -1825,7 +1947,7 @@ public class CellSensReader extends FormatReader {
             }
             if ("Channel Wavelength Value".equals(tagPrefix + tagName)) {
               channelCount++;
-            }
+          }
             else if ("Z valueValue".equals(tagPrefix + tagName)) {
               zCount++;
             }
@@ -1901,32 +2023,92 @@ public class CellSensReader extends FormatReader {
     }
   }
 
-  private String getVolumeName(int tag) {
+  private String getVolumeParentName(int tag,String prefix){
+	
+    switch (tag) {
+	  case MICROSCOPE_VOLUME:
+          return "Acquisition ";
+	  case INSTRUMENT_VOLUME:
+    	  if(prefix.equals("Acquisition ")|| prefix.equals("Instruments ")){
+    		  return "Instruments ";
+    	  }
+    	  return "Channel Props ";
+	  case 1:
+    	  if(prefix.equals("Instruments ")||prefix.equals("Detector "))
+    		  return "Detector ";
+    	  break;
+	  case 2:
+    	  if(prefix.equals("Instruments ")||prefix.equals("Mic "))
+    		  return "Mic ";
+    	  break;
+	  case 3:
+		  if(prefix.equals("Instruments ")||prefix.equals("Objective "))
+			  return "Objective ";
+		  break;
+	  case 2008:
+		  return "Channel ";
+	  case 2002://cellSens 1.12, 1.13, 1.18
+	  case TIME_VALUE: //cellSens 1.17
+		  return P_TIMESTAMP;
+	
+	 
+		  
+	  }
+	  
+	  LOGGER.debug("Unhandled volume parent {}", tag);
+	    return "";
+  }
+  
+  private String getVolumeName(int tag, String prefix) {
+	
     switch (tag) {
       case COLLECTION_VOLUME:
       case MULTIDIM_IMAGE_VOLUME:
-      case IMAGE_FRAME_VOLUME:
+//      case IMAGE_FRAME_VOLUME:
       case DIMENSION_SIZE:
       case IMAGE_COLLECTION_PROPERTIES:
-      case MULTIDIM_STACK_PROPERTIES:
+//      case MULTIDIM_STACK_PROPERTIES:
       case FRAME_PROPERTIES:
       case DIMENSION_DESCRIPTION_VOLUME:
       case CHANNEL_PROPERTIES:
       case DISPLAY_MAPPING_VOLUME:
       case LAYER_INFO_PROPERTIES:
         return "";
-      case OPTICAL_PATH:
-        return "Microscope ";
+//      case OPTICAL_PATH:
+//        return "Microscope ";
+      case 2002:
+      case TIME_VALUE:
+		  return P_TIMESTAMP;
       case 2417:
         return "Channel Wavelength ";
       case WORKING_DISTANCE:
         return "Objective Working Distance ";
+      case STAGE_POS_X:
+    	  return "Stage Position X ";
+      case STAGE_POS_Y:
+    	  return "Stage Position Y ";
+      case OBJECTIVE_VOL:
+    	  return "Objective";
+      case 1:
+    	  if(prefix.equals("Instruments ")||prefix.equals("Detector "))
+    		  return "Detector ";
+    	  break;
+	  case 2:
+    	  if(prefix.equals("Instruments ")||prefix.equals("Mic "))
+    		  return "Mic ";
+    	  break;
+	  case 3:
+		  if(prefix.equals("Instruments ")||prefix.equals("Objective "))
+			  return "Objective ";
+		  break;
+     
+     
     }
     LOGGER.debug("Unhandled volume {}", tag);
     return "";
   }
 
-  private String getTagName(int tag) {
+  private String getTagName(int tag,String parent) {
     switch (tag) {
       case Y_PLANE_DIMENSION_UNIT:
         return "Image plane rectangle unit (Y dimension)";
@@ -2014,8 +2196,6 @@ public class CellSensReader extends FormatReader {
         return "Timelapse start";
       case TIME_INCREMENT:
         return "Timelapse increment";
-      case TIME_VALUE:
-        return "Timestamp";
       case LAMBDA_START:
         return "Lambda start";
       case LAMBDA_INCREMENT:
@@ -2196,10 +2376,19 @@ public class CellSensReader extends FormatReader {
         return "Numerical Aperture";
       case WORKING_DISTANCE:
         return "Objective Working Distance";
+      case STAGE_POS_X:
+    	  return "Stage Position X ";
+      case STAGE_POS_Y:
+    	  return "Stage Position Y ";
       case OBJECTIVE_NAME:
+    	  if(parent.equals("Objective ")){
         return "Objective Name";
+    	  }
+    	return "Filter Name";
       case OBJECTIVE_TYPE:
+    	  if(parent.equals("Objective "))
         return "Objective Type";
+    	  return "Filter Type";
       case 120065:
         return "Objective Description";
       case 120066:
@@ -2245,6 +2434,8 @@ public class CellSensReader extends FormatReader {
       case 120132:
         return "Device Model";
       case DEVICE_MANUFACTURER:
+    	  if(parent.equals("Objective "))
+    		  return "Objective Manufacturer";
         return "Device Manufacturer";
       case 121102:
         return "Stage Insert Position";
@@ -2253,6 +2444,9 @@ public class CellSensReader extends FormatReader {
       case 268435456:
         return "Units";
       case VALUE:
+    	if(parent.equals(P_TIMESTAMP)) {
+      		return "Timepoint";
+    	}
         return "Value";
       case 175208:
         return "Snapshot Count";
@@ -2461,6 +2655,11 @@ public class CellSensReader extends FormatReader {
     public Double refractiveIndex;
     public Double workingDistance;
 
+    public Double startTime=Double.MAX_VALUE;
+    public Double endTime=0.0;
+    public Double lastTimeVal=0.0;
+    public boolean collectTimes=true;
+
     public Integer width;
     public Integer height;
     public Double originX;
@@ -2469,6 +2668,8 @@ public class CellSensReader extends FormatReader {
     public Double physicalSizeY;
     public Long acquisitionTime;
     public Integer bitDepth;
+    public Double stagePosY;
+    public Double stagePosX;
 
     public Integer binningX;
     public Integer binningY;
@@ -2482,14 +2683,24 @@ public class CellSensReader extends FormatReader {
     public Double greenOffset;
     public Double blueOffset;
 
+    public String subarray;
+
     public ArrayList<String> channelNames = new ArrayList<String>();
     public ArrayList<Double> channelWavelengths = new ArrayList<Double>();
     public ArrayList<Long> exposureTimes = new ArrayList<Long>();
     public Long defaultExposureTime;
+    public ArrayList<Double> attenuation = new ArrayList<Double>();
 
     public ArrayList<String> objectiveNames = new ArrayList<String>();
+    public ArrayList<String> objectiveManufacturers = new ArrayList<String>();
     public ArrayList<Integer> objectiveTypes = new ArrayList<Integer>();
 
+    //TODO: add element to both arrays at same time
+    // at the moment it is possible that name==0 -> not added, but type will be inserted
+    public ArrayList<String> filterNames = new ArrayList<String>();
+    public ArrayList<Integer> filterTypes = new ArrayList<Integer>();
+
+    //TODO: same as above
     public ArrayList<String> deviceNames = new ArrayList<String>();
     public ArrayList<String> deviceTypes = new ArrayList<String>();
     public ArrayList<String> deviceIDs = new ArrayList<String>();
