@@ -2240,7 +2240,6 @@ public class ZeissCZIReader extends FormatReader {
 
           if(manufacturerNode==null){
 			  model=lightSource.getAttribute("Name");
-			  System.out.println("##DEBUG: LightSourceElement Name= "+model);
           }
           String type = getFirstNodeValue(lightSource, "LightSourceType");
           String power = getFirstNodeValue(lightSource, "Power");
@@ -2253,62 +2252,78 @@ public class ZeissCZIReader extends FormatReader {
           }
           
           if ("Laser".equals(type) || typeName.equals("Laser") || (model!=null && model.contains("Laser"))){
-        	  store.setLaserID(lightSrcID, 0, nextLightSource);
-        	  if (power != null) {
-        		  store.setLaserPower(new Power(new Double(power), UNITS.MILLIWATT), 0, nextLightSource);
+        	  try {
+        		  store.setLaserID(lightSrcID, 0, nextLightSource);
+        		  if (power != null) {
+        			  store.setLaserPower(new Power(new Double(power), UNITS.MILLIWATT), 0, nextLightSource);
+        		  }
+        		  store.setLaserLotNumber(lotNumber, 0, nextLightSource);
+        		  store.setLaserManufacturer(manufacturer, 0, nextLightSource);
+        		  store.setLaserModel(model, 0, nextLightSource);
+        		  store.setLaserSerialNumber(serialNumber, 0, nextLightSource);
+        		  Element laser = getFirstNode(lightSource,"Laser");
+        		  String wl=getFirstNodeValue(laser, "Wavelength");
+        		  if (wl != null) {
+        			  store.setLaserWavelength(new Length(new Double(wl), UNITS.NM), 0, nextLightSource);
+        		  }
+        		  nextLightSource++;
+        	  }catch(Exception e) {
+        		  LOGGER.debug("Could not parse laser "+nextLightSource,e);
         	  }
-        	  store.setLaserLotNumber(lotNumber, 0, nextLightSource);
-        	  store.setLaserManufacturer(manufacturer, 0, nextLightSource);
-        	  store.setLaserModel(model, 0, nextLightSource);
-        	  store.setLaserSerialNumber(serialNumber, 0, nextLightSource);
-        	  Element laser = getFirstNode(lightSource,"Laser");
-        	  String wl=getFirstNodeValue(laser, "Wavelength");
-        	  if (wl != null) {
-        		  store.setLaserWavelength(new Length(new Double(wl), UNITS.NM), 0, nextLightSource);
-        	  }
-        	  nextLightSource++;
           }
           else if ("Arc".equals(type)||(model!=null && model.contains("Arc")) ) {
-              if(lightSrcID==null) {
-            	  lightSrcID = "LightSource:" + nextLightSource;
-              }
-             store.setArcID(lightSrcID, 0, nextLightSource);
-            if (power != null) {
-              store.setArcPower(new Power(new Double(power), UNITS.MILLIWATT), 0, nextLightSource);
-            }
-            store.setArcLotNumber(lotNumber, 0, nextLightSource);
-            store.setArcManufacturer(manufacturer, 0, nextLightSource);
-            store.setArcModel(model, 0, nextLightSource);
-            store.setArcSerialNumber(serialNumber, 0, nextLightSource);
-            nextLightSource++;
+        	  try {
+        		  if(lightSrcID==null) {
+        			  lightSrcID = "LightSource:" + nextLightSource;
+        		  }
+        		  store.setArcID(lightSrcID, 0, nextLightSource);
+        		  if (power != null) {
+        			  store.setArcPower(new Power(new Double(power), UNITS.MILLIWATT), 0, nextLightSource);
+        		  }
+        		  store.setArcLotNumber(lotNumber, 0, nextLightSource);
+        		  store.setArcManufacturer(manufacturer, 0, nextLightSource);
+        		  store.setArcModel(model, 0, nextLightSource);
+        		  store.setArcSerialNumber(serialNumber, 0, nextLightSource);
+        		  nextLightSource++;
+        	  }catch(Exception e) {
+        		  LOGGER.debug("Could not parse arc "+nextLightSource,e);
+        	  }
           }
           else if ("LightEmittingDiode".equals(type)|| (model!=null && model.contains("LED"))) {
-        	  if(lightSrcID==null) {
-            	  lightSrcID = "LightSource:" + nextLightSource;
-              }
-             store.setLightEmittingDiodeID(lightSrcID, 0, nextLightSource);
-            if (power != null) {
-              store.setLightEmittingDiodePower(new Power(new Double(power), UNITS.MILLIWATT), 0, nextLightSource);
-            }
-            store.setLightEmittingDiodeLotNumber(lotNumber, 0, nextLightSource);
-            store.setLightEmittingDiodeManufacturer(manufacturer, 0, nextLightSource);
-            store.setLightEmittingDiodeModel(model, 0, nextLightSource);
-            store.setLightEmittingDiodeSerialNumber(serialNumber, 0, nextLightSource);
-            nextLightSource++;
+        	  try {
+        		  if(lightSrcID==null) {
+        			  lightSrcID = "LightSource:" + nextLightSource;
+        		  }
+        		  store.setLightEmittingDiodeID(lightSrcID, 0, nextLightSource);
+        		  if (power != null) {
+        			  store.setLightEmittingDiodePower(new Power(new Double(power), UNITS.MILLIWATT), 0, nextLightSource);
+        		  }
+        		  store.setLightEmittingDiodeLotNumber(lotNumber, 0, nextLightSource);
+        		  store.setLightEmittingDiodeManufacturer(manufacturer, 0, nextLightSource);
+        		  store.setLightEmittingDiodeModel(model, 0, nextLightSource);
+        		  store.setLightEmittingDiodeSerialNumber(serialNumber, 0, nextLightSource);
+        		  nextLightSource++;
+        	  }catch(Exception e) {
+        		  LOGGER.debug("Could not parse LED "+nextLightSource,e);
+        	  }
           }
           else if ("Filament".equals(type)|| (model!=null && model.contains("Filament"))) {
-        	  if(lightSrcID==null) {
-            	  lightSrcID = "LightSource:" + nextLightSource;
-              }
-             store.setFilamentID(lightSrcID, 0, nextLightSource);
-            if (power != null) {
-              store.setFilamentPower(new Power(new Double(power), UNITS.MILLIWATT), 0, nextLightSource);
-            }
-            store.setFilamentLotNumber(lotNumber, 0, nextLightSource);
-            store.setFilamentManufacturer(manufacturer, 0, nextLightSource);
-            store.setFilamentModel(model, 0, nextLightSource);
-            store.setFilamentSerialNumber(serialNumber, 0, nextLightSource);
-            nextLightSource++;
+        	  try {
+        		  if(lightSrcID==null) {
+        			  lightSrcID = "LightSource:" + nextLightSource;
+        		  }
+        		  store.setFilamentID(lightSrcID, 0, nextLightSource);
+        		  if (power != null) {
+        			  store.setFilamentPower(new Power(new Double(power), UNITS.MILLIWATT), 0, nextLightSource);
+        		  }
+        		  store.setFilamentLotNumber(lotNumber, 0, nextLightSource);
+        		  store.setFilamentManufacturer(manufacturer, 0, nextLightSource);
+        		  store.setFilamentModel(model, 0, nextLightSource);
+        		  store.setFilamentSerialNumber(serialNumber, 0, nextLightSource);
+        		  nextLightSource++;
+        	  }catch(Exception e) {
+        		  LOGGER.debug("Could not parse filament "+nextLightSource,e);
+        	  }
           }
         }
       }
