@@ -29,7 +29,10 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.MathContext;
 import java.math.RoundingMode;
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 
 import loci.common.DateTools;
 import loci.common.RandomAccessInputStream;
@@ -834,8 +837,32 @@ public class FluoviewReader extends BaseTiffReader {
         }
       }
       if (date != null) {
-        date = DateTools.formatDate(date.trim(),
-          new String[] {"dd/MM/yyyy hh:mm:ss a", "MM-dd-yyyy hh:mm:ss","dd/MM/yyyy H:mm:ss"}, true);
+//        date = DateTools.formatDate(date.trim(),
+//          new String[] {"dd/MM/yyyy hh:mm:ss a", "MM-dd-yyyy hh:mm:ss","dd/MM/yyyy H:mm:ss"}, true);
+        
+        
+        //convert date
+        date = DateTools.formatDate(date.trim(),DATE_FORMATS_EXT);
+        if(date != null){
+      	  LOGGER.info("known uos creation date format: convert to {} ", date);
+      	  String dateformat= DateTools.ISO8601_FORMAT_MS;
+      	  String s=DateTools.formatDate(date,dateformat);
+      	  if(s==null){
+      		  dateformat=DateTools.ISO8601_FORMAT;
+      		  s=DateTools.formatDate(date, dateformat);
+
+      	  }
+      	  DateFormat df=new SimpleDateFormat(dateformat);
+      	  try{
+      		  Date d=df.parse(s);
+//      		  SimpleDateFormat f=new SimpleDateFormat(DateTools.TIMESTAMP_FORMAT);
+      		  SimpleDateFormat f=new SimpleDateFormat(DateTools.ISO8601_FORMAT);
+
+      		  date = f.format(d);
+      	  }catch(Exception e){
+      		  date=s;
+      	  }
+        }
         Timestamp timestamp = Timestamp.valueOf(date);
         if (timeIndex >= 0 && timestamp != null) {
           long ms = timestamp.asInstant().getMillis();
