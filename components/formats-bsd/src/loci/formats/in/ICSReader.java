@@ -628,6 +628,9 @@ public class ICSReader extends FormatReader {
           toSkip += offset;
         }
         try {
+          if (gzipStream != null) {
+            gzipStream.close();
+          }
           gzipStream = new GZIPInputStream(fis);
         }
         catch (IOException e) {
@@ -1497,7 +1500,7 @@ public class ICSReader extends FormatReader {
           ArrayList<String> realUnits = new ArrayList<String>();
           int unitIndex = 0;
           for (int i=0; i<axes.length; i++) {
-            if (axes[i].toLowerCase().equals("ch")) {
+            if (axes[i].toLowerCase().equals("ch") || unitIndex >= units.length) {
               realUnits.add("nm");
             }
             else {

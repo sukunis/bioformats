@@ -300,6 +300,9 @@ public class DeltavisionReader extends FormatReader {
     super.initFile(id);
     findLogFiles();
 
+    if (in != null) {
+      in.close();
+    }
     in = new RandomAccessInputStream(currentId);
     initPixels();
 
@@ -484,6 +487,21 @@ public class DeltavisionReader extends FormatReader {
     }
 
     int nStagePositions = xTiles * yTiles;
+
+    // if an *.rcpnl file is encountered, assume all timepoints are positions
+    // the stage position values may not represent a uniform grid,
+    // but should still be separate positions
+    if (checkSuffix(currentId, "rcpnl")) {
+      nStagePositions = getSizeT();
+      if (xTiles * yTiles != nStagePositions) {
+        // if positions are not uniform, we can't reliably determine
+        // the size of the grid or the direction in which the stage moved
+        xTiles = nStagePositions;
+        yTiles = 1;
+        backwardsStage = false;
+      }
+    }
+
     if (nStagePositions > 0 && nStagePositions <= getSizeT()) {
       int t = getSizeT();
       m.sizeT /= nStagePositions;
@@ -2641,9 +2659,40 @@ public class DeltavisionReader extends FormatReader {
         break;
       case 18107: // API 10X, BH
         lensNA = 0.15;
+
+        if (checkSuffix(currentId, "rcpnl")) {
+          lensNA = 0.30;
+        }
+
         magnification = 10.0;
         workingDistance = 15.00;
         immersion = MetadataTools.getImmersion("Air");
+        correction = MetadataTools.getCorrection("PlanFluor");
+        manufacturer = "Nikon";
+        break;
+      case 18108:
+        magnification = 20.0;
+        lensNA = 0.75;
+        correction = MetadataTools.getCorrection("PlanApo");
+        manufacturer = "Nikon";
+        break;
+      case 18109:
+        magnification = 40.0;
+        lensNA = 0.95;
+        correction = MetadataTools.getCorrection("PlanApo");
+        manufacturer = "Nikon";
+        break;
+      case 18110:
+        magnification = 40.0;
+        lensNA = 0.60;
+        correction = MetadataTools.getCorrection("PlanFluor");
+        manufacturer = "Nikon";
+        break;
+      case 18111:
+        magnification = 4.0;
+        lensNA = 0.20;
+        correction = MetadataTools.getCorrection("PlanApo");
+        manufacturer = "Nikon";
         break;
       case 18201: // API 20X, HiRes A, CW
         lensNA = 0.55;
@@ -2778,6 +2827,10 @@ public class DeltavisionReader extends FormatReader {
         immersion = MetadataTools.getImmersion("Oil");
         manufacturer = "Nikon";
         break;
+      default:
+        LOGGER.warn(
+          "Unrecognized lens ID {}; objective information may be incorrect",
+          lensID);
     }
 
     String objectiveID = "Objective:" + lensID;

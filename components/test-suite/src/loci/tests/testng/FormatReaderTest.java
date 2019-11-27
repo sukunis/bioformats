@@ -31,6 +31,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -76,7 +77,9 @@ import org.slf4j.LoggerFactory;
 import org.testng.Assert;
 import org.testng.SkipException;
 import org.testng.annotations.AfterClass;
+import org.testng.annotations.AfterSuite;
 import org.testng.annotations.BeforeClass;
+import org.testng.annotations.BeforeSuite;
 import org.testng.annotations.Test;
 
 /**
@@ -106,6 +109,8 @@ public class FormatReaderTest {
 
   /** List of files to skip. */
   private static List<String> skipFiles = new LinkedList<String>();
+
+  private static ArrayList<String> initialDescriptors;
 
   /** Global shared jeader for use in all tests. */
   private BufferedImageReader reader;
@@ -158,12 +163,49 @@ public class FormatReaderTest {
     initFile();
   }
 
-  @AfterClass
+  @AfterClass(alwaysRun = true)
   public void close() throws IOException {
     reader.close();
     HashMap<String, Object> idMap = Location.getIdMap();
     idMap.clear();
     Location.setIdMap(idMap);
+  }
+
+  @BeforeSuite(alwaysRun = true)
+  public void saveFileDescriptorCount() throws IOException {
+    initialDescriptors = TestTools.getHandles(true);
+  }
+
+  @AfterSuite(alwaysRun = true)
+  public void checkFileDescriptorCount() throws IOException {
+    ArrayList<String> currentDescriptors = TestTools.getHandles(true);
+    long leakedDescriptors =
+      currentDescriptors.size() - initialDescriptors.size();
+    if (leakedDescriptors > 0) {
+      currentDescriptors.removeAll(initialDescriptors);
+
+      // remove any log file handles
+      // not all JDK versions will leave these open
+      // so just subtracting the thread count won't work
+
+      for (int i=0; i<currentDescriptors.size(); i++) {
+        String name = new File(currentDescriptors.get(i)).getName();
+        if (name.startsWith("bio-formats-test-") && name.endsWith(".log")) {
+          currentDescriptors.remove(i);
+          i--;
+        }
+      }
+
+      leakedDescriptors = currentDescriptors.size();
+      if (leakedDescriptors > 0) {
+        LOGGER.warn("Open file handles:");
+        for (String f : currentDescriptors) {
+          LOGGER.warn("  {}", f);
+        }
+      }
+    }
+    result("File handle", leakedDescriptors <= 0,
+      leakedDescriptors + " leaked file handles");
   }
 
   // -- Tests --
@@ -1388,6 +1430,129 @@ public class FormatReaderTest {
     result(testName, true);
   }
 
+  @Test(groups = {"all", "fast", "automated"})
+  public void testHCSMetadata() {
+    if (config == null) throw new SkipException("No config tree");
+    String testName = "HCS";
+    if (!initFile()) result(testName, false, "initFile");
+    IMetadata retrieve = (IMetadata) reader.getMetadataStore();
+
+    for (int s=0; s<reader.getSeriesCount(); s++) {
+      config.setSeries(s);
+      String failureSuffix = " incorrect for series " + s;
+
+      int plate = config.getPlate();
+      if (plate >= retrieve.getPlateCount()) {
+        result(testName, false, "Plate index" + failureSuffix);
+      }
+      else if (plate < 0) {
+        if (retrieve.getPlateCount() > 0) {
+          boolean allEmpty = true;
+          for (int p=0; p<retrieve.getPlateCount(); p++) {
+            if (retrieve.getWellCount(p) > 0) {
+              boolean emptyWell = true;
+              for (int w=0; w<retrieve.getWellCount(p); w++) {
+                if (retrieve.getWellSampleCount(p, w) > 0) {
+                  emptyWell = false;
+                  break;
+                }
+              }
+              if (!emptyWell) {
+                allEmpty = false;
+              }
+              break;
+            }
+          }
+          if (!allEmpty) {
+            result(testName, false, "Plate index" + failureSuffix);
+          }
+        }
+        continue;
+      }
+      boolean foundWell = false;
+      for (int w=0; w<retrieve.getWellCount(plate); w++) {
+        int row = config.getWellRow();
+        int col = config.getWellColumn();
+        if (row == retrieve.getWellRow(plate, w).getNumberValue().intValue() &&
+          col == retrieve.getWellColumn(plate, w).getNumberValue().intValue())
+        {
+          foundWell = true;
+
+          int wellSample = config.getWellSample();
+          String image = retrieve.getImageID(s);
+          if (wellSample >= retrieve.getWellSampleCount(plate, w) ||
+            wellSample < 0 ||
+            !image.equals(retrieve.getWellSampleImageRef(plate, w, wellSample)))
+          {
+            result(testName, false, "WellSample index" + failureSuffix);
+          }
+
+          Length positionX = retrieve.getWellSamplePositionX(plate, w, wellSample);
+          Length positionY = retrieve.getWellSamplePositionY(plate, w, wellSample);
+          Length configX = config.getWellSamplePositionX();
+          Length configY = config.getWellSamplePositionY();
+          if (positionX != null || configX != null) {
+            if (positionX == null || !positionX.equals(configX)) {
+              result(testName, false, "WellSample position X" + failureSuffix);
+            }
+          }
+          if (positionY != null || configY != null) {
+            if (positionY == null || !positionY.equals(configY)) {
+              result(testName, false, "WellSample position Y" + failureSuffix);
+            }
+          }
+
+          int plateAcq = config.getPlateAcquisition();
+          int plateAcqCount = retrieve.getPlateAcquisitionCount(plate);
+          if (plateAcq >= plateAcqCount) {
+            result(testName, false, "PlateAcquisition index" + failureSuffix);
+          }
+          else if (plateAcq < 0 && plateAcqCount > 0) {
+            // special case where this WellSample isn't
+            // linked to a PlateAcquisition,
+            // but multiple PlateAcquisitions exist
+            String wellSampleID =
+              retrieve.getWellSampleID(plate, w, wellSample);
+            for (int pa=0; pa<plateAcqCount; pa++) {
+              int wsCount = retrieve.getWellSampleRefCount(plate, pa);
+              for (int wsRef=0; wsRef<wsCount; wsRef++) {
+                String wellSampleRef =
+                  retrieve.getPlateAcquisitionWellSampleRef(plate, pa, wsRef);
+                if (wellSampleID.equals(wellSampleRef)) {
+                  result(testName, false,
+                    "PlateAcquisition-WellSample link" + failureSuffix);
+                }
+              }
+            }
+          }
+          else if (plateAcq >= 0 && plateAcqCount > 0) {
+            String wellSampleID = retrieve.getWellSampleID(plate, w, wellSample);
+            boolean foundWellSampleRef = false;
+            for (int wsRef=0; wsRef<retrieve.getWellSampleRefCount(plate, plateAcq); wsRef++) {
+              String wellSampleRef = retrieve.getPlateAcquisitionWellSampleRef(
+                plate, plateAcq, wsRef);
+              if (wellSampleID.equals(wellSampleRef)) {
+                foundWellSampleRef = true;
+                break;
+              }
+            }
+            if (!foundWellSampleRef) {
+              result(testName, false, "PlateAcquisition missing WellSampleRef" + failureSuffix);
+            }
+          }
+        }
+        if (foundWell) {
+          break;
+        }
+      }
+      if (!foundWell) {
+        result(testName, false, "Well indexes" + failureSuffix);
+      }
+    }
+
+    result(testName, true);
+  }
+
   @Test(groups = {"all", "xml", "automated"})
   public void testEqualOMEXML() {
     if (config == null) throw new SkipException("No config tree");
@@ -1760,6 +1925,11 @@ public class FormatReaderTest {
 
           // CV7000 datasets can only be reliably detected with the .wpi file
           if (reader.getFormat().equals("Yokogawa CV7000")) {
+            continue;
+          }
+
+          // CellWorx datasets can only be reliably detected with the .HTD file
+          if (reader.getFormat().equals("CellWorx")) {
             continue;
           }
 
@@ -2310,7 +2480,8 @@ public class FormatReaderTest {
             // Columbus datasets can consist of OME-TIFF files with
             // extra metadata files
             if (result && r instanceof ColumbusReader &&
-              readers[j] instanceof OMETiffReader)
+              (readers[j] instanceof OMETiffReader ||
+               readers[j] instanceof FlexReader))
             {
               continue;
             }
@@ -2586,12 +2757,10 @@ public class FormatReaderTest {
     finally {
       if (memoFile != null) {
         // log the memo file's size
-        try {
-          RandomAccessInputStream s = new RandomAccessInputStream(memoFile.getAbsolutePath());
+        try (RandomAccessInputStream s = new RandomAccessInputStream(memoFile.getAbsolutePath())) {
           LOGGER.debug("memo file size for {} = {} bytes",
                       new Location(reader.getCurrentFile()).getAbsolutePath(),
                       s.length());
-          s.close();
         }
         catch (IOException e) {
           LOGGER.warn("memo file size not available");
