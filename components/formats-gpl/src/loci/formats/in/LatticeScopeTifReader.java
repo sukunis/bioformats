@@ -1,10 +1,8 @@
 package loci.formats.in;
 
-import loci.formats.in.BaseTiffReader;
 import loci.formats.meta.IMetadata;
 import loci.formats.meta.MetadataRetrieve;
 import loci.formats.meta.MetadataStore;
-import loci.formats.out.TiffWriter;
 import loci.formats.services.OMEXMLService;
 import loci.formats.tiff.IFD;
 import loci.formats.tiff.IFDList;
@@ -15,14 +13,7 @@ import ome.units.quantity.Length;
 import ome.units.quantity.Power;
 import ome.units.quantity.Time;
 import ome.xml.meta.OMEXMLMetadataRoot;
-import ome.xml.model.Channel;
-import ome.xml.model.FileAnnotation;
-import ome.xml.model.Image;
-import ome.xml.model.Instrument;
-import ome.xml.model.OME;
-import ome.xml.model.Pixels;
-import ome.xml.model.StructuredAnnotations;
-import ome.xml.model.TiffData;
+import ome.xml.model.*;
 import ome.xml.model.UUID;
 import ome.xml.model.enums.Correction;
 import ome.xml.model.enums.DetectorType;
@@ -42,15 +33,12 @@ import loci.common.RandomAccessInputStream;
 import loci.common.services.DependencyException;
 import loci.common.services.ServiceException;
 import loci.common.services.ServiceFactory;
-import loci.common.ByteArrayHandle;
 import loci.common.Location;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
-import java.io.DataInputStream;
 import java.io.File;
 import java.io.FileFilter;
-import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.FileReader;
@@ -58,15 +46,9 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.io.UnsupportedEncodingException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Date;
-import java.util.List;
-import java.util.TimeZone;
+import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -89,6 +71,9 @@ import org.w3c.dom.Element;
 
 
 /**
+ * Lattice dataset structure:
+ *
+ *
  * Filename structure: <expName>_<1>_<2>_<3>_<4>_<5>_<6>.tif
  * 1: optional: CamA or CamB (default CamA if not dual detector used)
  * 2: Channel number as ch<nr> for example ch0
@@ -107,27 +92,16 @@ public class LatticeScopeTifReader extends BaseTiffReader {
 	/** Helper readers. */
 	protected MinimalTiffReader tiff;
 
-
 	/** Name of experiment metadata file */
 	private String metaDataFile;
-
-	/** companion files**/
-	private String[] files;
-	private List<List<String>> tiffDataFNames;
-	
-	private OMEXMLMetadataRoot newRoot;
 
 	private Location experimentDir;
 	private String experimentName;
 
 	/** Metadata read out from companion image files**/
-	private int numChannels=0;
-	private int sizeStack=0;
-	private int numDetector=0;
 
 	/** read out from filename**/
 	private String detectorModel;
-	private String channelNumber;
 	private Length excitationWavelength;
 	private Double magnification;
 
@@ -135,8 +109,12 @@ public class LatticeScopeTifReader extends BaseTiffReader {
 	private String tagClass;
 	/** tagname of parent node in file*/
 	private String parentTag;
+		
+	private String SETTINGS_FILE = "_Settings.txt";
 
 	private final static Pattern FILENAME_DATE_PATTERN = Pattern.compile(".*_ch.*_stack.*_.*nm_.*msec_.*msecAbs.tif");
+    private final static Pattern FILENAME_DATE_PATTERN_DESKEWED = Pattern.compile(".*_ch.*_stack.*_.*nm_.*msec_.*msecAbs_.*deskewed.*.tif");
+    private final static Pattern FILENAME_DATE_PATTERN_DECON = Pattern.compile(".*_ch.*_stack.*_.*nm_.*msec_.*msecAbs_.*decon.*.tif");
 	/**Search for <***** ***** ***** hier irgendwas ***** ***** *****> */
 	private final static Pattern HEADER_PATTERN = Pattern.compile("[*]{5}\\s+[*]{5}\\s+[*]{5}.*[*]{5}\\s+[*]{5}\\s+[*]{5}.*");
 	// -- Constructor --
@@ -148,7 +126,7 @@ public class LatticeScopeTifReader extends BaseTiffReader {
 		suffixSufficient = false;
 		domains = new String[] {FormatTools.LM_DOMAIN};
 		datasetDescription =
-				"One or more .tif files, and a metadata .txt file";
+				"One or more .tif files, and a metadata *Settings.txt file";
 		parentTag="";
 		tagClass="";
 	}
@@ -158,171 +136,60 @@ public class LatticeScopeTifReader extends BaseTiffReader {
 	/* @see loci.formats.IFormatReader#isThisType(RandomAccessInputStream) */
 	@Override
 	public boolean isThisType(RandomAccessInputStream stream) throws IOException {
-
 		TiffParser tp = new TiffParser(stream);
 		String comment = tp.getComment();
 		if (comment == null) return false;
 		comment = comment.trim();
 		return comment.startsWith("ImageJ=");
 	}
+
 	/* @see loci.formats.IFormatReader#isThisType(String, boolean) */
 	@Override
 	public boolean isThisType(String name, boolean open) {
 
 		if (!open) return false; // not allowed to touch the file system
-		if(!checkFileNamePattern(name)) {
-			LOGGER.info("No valid UOS LatticeScope file name: "+name);
+
+		if(!checkFileNamePattern(name,FILENAME_DATE_PATTERN)) {
+			// also deskewed or decon file are "Lattice" files
+			if(!checkFileNamePattern(name,FILENAME_DATE_PATTERN_DECON)){
+				if(!checkFileNamePattern(name,FILENAME_DATE_PATTERN_DESKEWED)){
+					LOGGER.info("No valid UOS LatticeScope file name: "+name);
+					return false;
+				}else{
+					System.out.println("LATTICE READER:: deskewed file");
+				}
+			}else{
+				System.out.println("LATTICE READER:: decon file");
+			}
+		}else{
+			System.out.println("LATTICE READER:: raw file");
+		}
+
+		// check settingsfile exists
+		Location settingsFile =findSettingsFile(name);
+		if(!settingsFile.exists()){
 			return false;
 		}
+
 		return true;
 
 	}
-	private boolean checkFileNamePattern(String name) {
-		Matcher m = FILENAME_DATE_PATTERN.matcher(name);
+
+	private boolean checkFileNamePattern(String name, Pattern filenameDatePattern) {
+		Matcher m = filenameDatePattern.matcher(name);
 		if (m.matches()) return true;
+
 		return false;
 	}
-	
-//	 /* @see loci.formats.IFormatReader#isSingleFile(String) */
-//	  @Override
-//	  public boolean isSingleFile(String id) throws FormatException, IOException {
-//	    return false;
-//	}
-//	  
-//	  @Override
-//	  public int fileGroupOption( final String id ) throws FormatException, IOException
-//	  {
-//	    return FormatTools.MUST_GROUP;
-//	  }
 
-	/* @see loci.formats.IFormatReader#getSeriesUsedFiles(boolean) */
-//	@Override
-//	public String[] getUsedFiles(boolean noPixels) {
-//		FormatTools.assertId(currentId, true, 1);
-//		return noPixels ? ArrayUtils.EMPTY_STRING_ARRAY : new String[] {metaDataFile};//files;
-//	}
-	
-//	/* @see loci.formats.IFormatReader#getSeriesUsedFiles(boolean) */
-//	  @Override
-//	  public String[] getSeriesUsedFiles(boolean noPixels) {
-//		  System.out.println("LatticeScopeReader::getSeriesUsedFiles()");
-//	    FormatTools.assertId(currentId, true, 1);
-//	   
-//	    if(noPixels) {
-//	    	return new String[] {metaDataFile};
-//	    }
-//
-//	    final List<String> fileList = new ArrayList<String>();
-//	    if (files != null) {
-//	      for (String file : files) {
-//	        String f = file.toLowerCase();
-//	        if (!f.endsWith(".txt") )
-//	        {
-//	          if (!fileList.contains(file)) {
-//	        	  System.out.println("series file: "+file);
-//	        	  fileList.add(file);
-//	          }
-//	        }
-//	      }
-//	    }
-////	    if (!noPixels) {
-////	      if (getSeries() == 0 && tiffs != null) {
-////	    	  fileList.addAll(tiffs);
-////	      }
-////	      else if (getSeries() == 1 && previewNames != null) {
-////	    	  fileList.addAll(previewNames);
-////	      }
-////	    }
-//
-//	    return fileList.toArray(new String[0]);
-//	  }
-
-	/**
-	 * check companion channel and stack files in the directory
-	 * @param expName
-	 * @param files
-	 * @param currentName
-	 */
-	private void parseCompanionExperimentFileNames(String currentName) 
-	{
-		tiffDataFNames=new ArrayList<>();
-		numChannels=0;
-		sizeStack=0;
-		numDetector=1;// default CamA
-		boolean detector2=false;
-		for(int indexF=0; indexF<files.length; indexF++) {
-			String fname=files[indexF];
-			System.out.println("Parse "+fname);
-			if(fname!=null && !fname.contains("Settings")) {
-				String[] infos=fname.substring(
-						fname.lastIndexOf(experimentName)+experimentName.length()+1,fname.length()).split("_");
-				int thisCH=-1;
-				int thisStack=-1;
-				for(int i=0; i<infos.length;i++) {
-					
-					// read out number of channels
-					if(infos[i].contains("ch")) {
-						String channelName=infos[i].substring(2, infos[i].length());
-						thisCH=Integer.valueOf(channelName);
-						if(numChannels < thisCH)
-							numChannels = thisCH;
-					}
-					//read out number of stacks
-					else if(infos[i].contains("stack")) {
-						String stackNumber=infos[i].substring(5, infos[i].length());
-						thisStack=Integer.valueOf(stackNumber);
-						if(sizeStack < thisStack )
-							sizeStack = thisStack;
-					}
-
-					else if(infos[i].contains("CamB")) {
-						detector2=true;
-					}
-					
-				}
-				System.out.println("Check file infos: "+Arrays.toString(infos)+":: "+thisCH+", "+thisStack);
-				//entry in tiffDataFNames list according ch and stack number
-				if(thisCH>-1 && thisStack>-1) {
-					try {
-						List<String> st=null;
-						if(thisCH <tiffDataFNames.size())
-							st=tiffDataFNames.get(thisCH);
-						if(st==null) {
-							st=new ArrayList<>();
-						}
-						st.add(fname);
-						
-						if(thisCH < tiffDataFNames.size())
-							tiffDataFNames.set(thisCH, st);
-						else
-							tiffDataFNames.add(st);
-					}catch(Exception e) {
-						System.out.println("ERROR tiffDataFNames list index: "+tiffDataFNames.size());
-						e.printStackTrace();
-					}
-				}
-			}
-		}
-
-		if(detector2)
-			numDetector++;
-
-		numChannels++;
-
-		// add to original metadata -> series data
-//		addSeriesMetaList("Number Channels",numChannels);
-//		addSeriesMetaList("Number Stacks", sizeStack);
-		System.out.println("## LatticeScopeReader::parseCompanionExpFileName(): CH: "+tiffDataFNames.size()+", STACKS: "+tiffDataFNames.get(0).size()+", Det: "+numDetector);
-
-	}
 
 	/**
 	 * Parse filename to get additional information
 	 * filename format: <experimentname>_<opt:camera>_<channel>_<stackNr>_<exitationWavelength>_<acqTimePoint>_<absAcqTimePoint>.tif
 	 * for version :	v 4.02893.0012 Built on : 3/21/2016 12:20:26 PM, rev 2893   
-	 * @param store
+	 * @param file
 	 */
-	private void parseFileName(String file) {
+	private void parseFileNameMetaData(String file) {
 		// TODO Auto-generated method stub
 		LOGGER.info("## LatticeScopeReader::parseFileName()");
 		boolean foundDet=false;
@@ -335,7 +202,7 @@ public class LatticeScopeTifReader extends BaseTiffReader {
 			}
 			//find ch index
 			else if(infos[i].contains("ch")) {
-				channelNumber=infos[i].substring(2, infos[i].length());
+				//channelNumber=infos[i].substring(2, infos[i].length());
 				// cam comes before channel
 				if(!foundDet) {
 					detectorModel="CamA";
@@ -348,11 +215,6 @@ public class LatticeScopeTifReader extends BaseTiffReader {
 
 	}
 
-
-
-
-
-
 	/** Populates the metadata hashtable and metadata store. */
 	@Override
 	protected void initMetadata() throws FormatException, IOException {
@@ -360,7 +222,6 @@ public class LatticeScopeTifReader extends BaseTiffReader {
 
 		initMetadataStore();
 	}
-
 
 	private void initStandardMetadataFromFile(MetadataStore store)  {
 		put("File Data","");
@@ -459,7 +320,7 @@ public class LatticeScopeTifReader extends BaseTiffReader {
 	 * sub-classes that override the getters for pixel set array size, etc.
 	 */
 	protected void initMetadataStore() throws FormatException {
-		LOGGER.info("Populating OME metadata");
+		LOGGER.info("initMetadataStore(): Populating OME metadata");
 
 		// the metadata store we're working with
 		MetadataStore store = makeFilterMetadata();
@@ -529,6 +390,7 @@ public class LatticeScopeTifReader extends BaseTiffReader {
 					Object exp = exif.get(IFD.EXPOSURE_TIME);
 					if (exp instanceof TiffRational) {
 						Time exposure = new Time(((TiffRational) exp).doubleValue(), UNITS.SECOND);
+						System.out.println("Exposure Time in tiff: "+exposure.value());
 						for (int i=0; i<getImageCount(); i++) {
 							store.setPlaneExposureTime(exposure, 0, i);
 						}
@@ -546,29 +408,47 @@ public class LatticeScopeTifReader extends BaseTiffReader {
 
 		store.setChannelID(MetadataTools.createLSID("Channel", 0), 0, 0);
 
-		setDetector(store);
-		setLightSource(store);
+		setDetector(store,detectorModel);
+		setLightSource(store,excitationWavelength);
 		setObjective(store);
 		initStandardMetadataFromFile(store);
-			
-		store.setChannelExcitationWavelength(excitationWavelength, 0, 0);
-		store.setChannelName(channelNumber, 0, 0);
-		
-//		try {
-//			convertToXML(store);
-//		} catch (IOException e) {
-//			// TODO Auto-generated catch block
-//			e.printStackTrace();
-//		}
 
+
+		store.setChannelExcitationWavelength(excitationWavelength, 0, 0);
+		//store.setChannelName(channelNumber, 0, 0);
+
+	}
+	private Instrument setObjective(Instrument instr) {
+
+		Objective obj1 = new Objective();
+		obj1.setID(MetadataTools.createLSID("Objective", 0, 0));
+		obj1.setModel("CFI-75 Apo 25x W MP");
+		obj1.setManufacturer("Nikon");
+		obj1.setLensNA(1.1);
+		obj1.setImmersion(Immersion.WATERDIPPING);
+		obj1.setCorrection(Correction.PLANAPO);
+		obj1.setWorkingDistance(new Length(2, UNITS.MILLIMETER));
+
+		Objective obj2 = new Objective();
+		obj2.setID(MetadataTools.createLSID("Objective", 1, 0));
+		obj2.setModel("54-10-7@488-910");
+		obj2.setManufacturer("Special Optics");
+		obj2.setLensNA(28.6);
+		obj2.setImmersion(Immersion.WATERDIPPING);
+		obj2.setWorkingDistance(new Length(3.74, UNITS.MILLIMETER));
+
+		instr.addObjective(obj1);
+		instr.addObjective(obj2);
+
+		return instr;
 	}
 
 
 	private void setObjective(MetadataStore store) {
 		String objID = MetadataTools.createLSID("Objective", 0, 0);
+
 		store.setObjectiveID(objID, 0, 0);
 		store.setObjectiveSettingsID(objID, 0);
-
 		store.setObjectiveModel("CFI-75 Apo 25x W MP", 0, 0);
 		store.setObjectiveManufacturer("Nikon", 0, 0);
 		store.setObjectiveLensNA(1.1, 0, 0);
@@ -576,79 +456,90 @@ public class LatticeScopeTifReader extends BaseTiffReader {
 		store.setObjectiveCorrection(Correction.PLANAPO, 0, 0);
 		store.setObjectiveWorkingDistance(new Length(2, UNITS.MILLIMETER), 0, 0);
 
-
 		objID = MetadataTools.createLSID("Objective", 1, 0);
 		store.setObjectiveID(objID, 0, 1);
 		//        store.setObjectiveSettingsID(objID, 0);
-
 		store.setObjectiveModel("54-10-7@488-910", 0, 1);
 		store.setObjectiveManufacturer("Special Optics", 0, 1);
 		store.setObjectiveCalibratedMagnification(28.6, 0, 1);
 		store.setObjectiveLensNA(0.66, 0, 1);
 		store.setObjectiveImmersion(Immersion.WATERDIPPING, 0, 1);
 		store.setObjectiveWorkingDistance(new Length(3.74, UNITS.MILLIMETER), 0, 1);
-
 	}
 
 
-	private void setLightSource(MetadataStore store) {
-		String lID=MetadataTools.createLSID("LightSource", 0, 0);
-		store.setLaserID(lID, 0, 0);
-		store.setChannelLightSourceSettingsID(lID, 0, 0);
+
+	private Laser createLightSource(Length excitationWavelength,int index) {
+		String lID=MetadataTools.createLSID("LightSource", 0, index);
+		Laser laser = new Laser();
+		laser.setID(lID);
+
 		if(excitationWavelength!=null) {
 			switch(String.valueOf(excitationWavelength.value())) {
-			case "405.0":
-				store.setLaserModel("LBX-405-300-CSB-PP", 0, 0);
-				store.setLaserManufacturer("Oxxius", 0, 0);
-				store.setLaserType(LaserType.SEMICONDUCTOR, 0,0);
-				store.setLaserWavelength(new Length(405, UNITS.NANOMETER), 0, 0);
-				store.setLaserPower(new Power(300, UNITS.MEGAWATT), 0, 0);
-				break;
-			case "445.0":
-				store.setLaserModel("LBX-405-300-CSB-PP", 0, 0);
-				store.setLaserManufacturer("Oxxius", 0, 0);
-				store.setLaserType(LaserType.SEMICONDUCTOR, 0,0);
-				store.setLaserWavelength(new Length(405, UNITS.NANOMETER), 0, 0);
-				store.setLaserPower(new Power(300, UNITS.MEGAWATT), 0, 0);
-				break;
-			case "488.0":
-				store.setLaserModel("2RU-VFL-P-300-488-B1R", 0, 0);
-				store.setLaserManufacturer("MPB Communications", 0, 0);
-				store.setLaserType(LaserType.OTHER, 0,0);
-				store.setLaserWavelength(new Length(488, UNITS.NANOMETER), 0, 0);
-				store.setLaserPower(new Power(300, UNITS.MEGAWATT), 0, 0);
-				break;
-			case "532.0":
-				store.setLaserModel("2RU-VFL-P-500-532-B1R", 0, 0);
-				store.setLaserManufacturer("MPB Communications", 0, 0);
-				store.setLaserType(LaserType.OTHER, 0,0);
-				store.setLaserWavelength(new Length(532, UNITS.NANOMETER), 0, 0);
-				store.setLaserPower(new Power(500, UNITS.MEGAWATT), 0, 0);
-				break;
-			case "560.0":
-				store.setLaserModel("2RU-VFL-P-2000-560-B1R", 0, 0);
-				store.setLaserManufacturer("MPB Communications", 0, 0);
-				store.setLaserType(LaserType.OTHER, 0,0);
-				store.setLaserWavelength(new Length(560, UNITS.NANOMETER), 0, 0);
-				store.setLaserPower(new Power(2000, UNITS.MEGAWATT), 0, 0);
-				break;
-			case "589.0":
-				store.setLaserModel("2RU-VFL-P-500-589-B1R", 0, 0);
-				store.setLaserManufacturer("MPB Communications", 0, 0);
-				store.setLaserType(LaserType.OTHER, 0,0);
-				store.setLaserWavelength(new Length(589, UNITS.NANOMETER), 0, 0);
-				store.setLaserPower(new Power(500, UNITS.MEGAWATT), 0, 0);
-				break;
-			case "642.0":
-				store.setLaserModel("2RU-VFL-P-2000-642-B1R", 0, 0);
-				store.setLaserManufacturer("MPB Communications", 0, 0);
-				store.setLaserType(LaserType.OTHER, 0,0);
-				store.setLaserWavelength(new Length(642, UNITS.NANOMETER), 0, 0);
-				store.setLaserPower(new Power(2000, UNITS.MEGAWATT), 0, 0);
-				break;
+				case "405.0":
+					laser = setLaserProperties(laser,"LBX-405-300-CSB-PP","Oxxius",
+							LaserType.SEMICONDUCTOR,new Length(405, UNITS.NANOMETER),
+							new Power(300, UNITS.MEGAWATT));
+					break;
+				case "445.0":
+					laser = setLaserProperties(laser,"LBX-405-300-CSB-PP","Oxxius",
+							LaserType.SEMICONDUCTOR,new Length(405, UNITS.NANOMETER),
+							new Power(300, UNITS.MEGAWATT));
+					break;
+				case "488.0":
+					laser = setLaserProperties(laser,"2RU-VFL-P-300-488-B1R","MPB Communications",
+							LaserType.OTHER,new Length(488, UNITS.NANOMETER),
+							new Power(300, UNITS.MEGAWATT));
+					break;
+				case "532.0":
+					laser = setLaserProperties(laser,"2RU-VFL-P-500-532-B1R","MPB Communications",
+							LaserType.OTHER,new Length(532, UNITS.NANOMETER),
+							new Power(500, UNITS.MEGAWATT));
+					break;
+				case "560.0":
+					laser = setLaserProperties(laser,"2RU-VFL-P-2000-560-B1R","MPB Communications",
+							LaserType.OTHER,new Length(560, UNITS.NANOMETER),
+							new Power(2000, UNITS.MEGAWATT));
+					break;
+				case "589.0":
+					laser = setLaserProperties(laser,"2RU-VFL-P-500-589-B1R","MPB Communications",
+							LaserType.OTHER,new Length(589, UNITS.NANOMETER),
+							new Power(500, UNITS.MEGAWATT));
+					break;
+				case "642.0":
+					laser = setLaserProperties(laser,"2RU-VFL-P-2000-642-B1R","MPB Communications",
+							LaserType.OTHER,new Length(642, UNITS.NANOMETER),
+							new Power(2000, UNITS.MEGAWATT));
+					break;
 			}
 		}
+		return laser;
+	}
 
+	private void setLightSource(MetadataStore store,Length excitationWavelength) {
+		String lID=MetadataTools.createLSID("LightSource", 0, 0);
+		Laser laser = createLightSource(excitationWavelength,0);
+
+		store.setLaserID(laser.getID(), 0, 0);
+		store.setChannelLightSourceSettingsID(laser.getID(), 0, 0);
+
+		if(excitationWavelength!=null) {
+			store.setLaserModel(laser.getModel(), 0, 0);
+			store.setLaserManufacturer(laser.getManufacturer(), 0, 0);
+			store.setLaserType(laser.getType(), 0,0);
+			store.setLaserWavelength(laser.getWavelength(), 0, 0);
+			store.setLaserPower(laser.getPower(), 0, 0);
+		}
+	}
+
+	private Laser setLaserProperties(Laser laser,String model,String manufac,LaserType type,Length wavelength,Power power){
+		laser.setModel(model);
+		laser.setManufacturer(manufac);
+		laser.setType(type);
+		laser.setWavelength(wavelength);
+		laser.setPower(power);
+
+		return laser;
 	}
 
 
@@ -656,20 +547,35 @@ public class LatticeScopeTifReader extends BaseTiffReader {
 	 * Set predefined UOS detector 
 	 * @param store 
 	 */
-	private void setDetector(MetadataStore store) {
-		String detectorID = MetadataTools.createLSID("Detector", 0, 0);
-		store.setDetectorID(detectorID, 0, 0);
+	private void setDetector(MetadataStore store,String detectorModel) {
+		Detector detector = createDetector(detectorModel,0);
+		store.setDetectorID(detector.getID(), 0, 0);
+
+		store.setDetectorModel(detector.getModel(), 0, 0);
+		store.setDetectorManufacturer(detector.getManufacturer(), 0, 0);
+		store.setDetectorType(detector.getType(), 0, 0);
+	}
+
+	/**
+	 * Set predefined UOS detector
+	 * @param detectorModel
+	 */
+	private Detector createDetector(String detectorModel,int index) {
+		String detectorID = MetadataTools.createLSID("Detector", 0, index);
+
+		Detector detector = new Detector();
+		detector.setID(detectorID);
 
 		if(detectorModel !=null && detectorModel.equals("CamA")) {
-			store.setDetectorModel("ORCAFlash 4.0 V2", 0, 0);
-			store.setDetectorManufacturer("Hamamatsu", 0, 0);
-			store.setDetectorType(DetectorType.CMOS, 0, 0);
+			detector.setModel("ORCAFlash 4.0 V2");
+			detector.setManufacturer("Hamamatsu");
+			detector.setType(DetectorType.CMOS);
 		}else if(detectorModel!=null && detectorModel.equals("CamB")) {
-			store.setDetectorModel("ORCAFlash 4.0 V3", 0, 0);
-			store.setDetectorManufacturer("Hamamatsu", 0, 0);
-			store.setDetectorType(DetectorType.CMOS, 0, 0);
+			detector.setModel("ORCAFlash 4.0 V3");
+			detector.setManufacturer("Hamamatsu");
+			detector.setType(DetectorType.CMOS);
 		}
-
+		return detector;
 	}
 
 
@@ -695,148 +601,34 @@ public class LatticeScopeTifReader extends BaseTiffReader {
 	}
 
 
+	private Location findSettingsFile(String id){
+		parseExperimentName(id);
+		return new Location(experimentDir,experimentName+SETTINGS_FILE);
+	}
+
 	/* @see loci.formats.FormatReader#initFile(String) */
 	@Override
 	protected void initFile(String id) throws FormatException, IOException {
 		super.initFile(id);
+		Location settingsFile = null;
 
-		parseExperimentName();
-		//TODO: test companion.ome exists -> return;
-//		Location compFile = new Location(experimentDir, experimentName+".companion.ome");
-//		if(compFile.exists()) {
-//			return;
-//		}
-		
-		LOGGER.info("Populating metadata");
-		System.out.println("intFile(): "+id);
+		settingsFile =findSettingsFile(id);
+		if(!settingsFile.exists()){
+			System.out.println("LATTICE READER:: can not find settingsfile at "+settingsFile.getAbsolutePath());
+			throw new FormatException("Could not find settings file for lattice experiment.");
+		}else{
+			metaDataFile=settingsFile.getAbsolutePath();
+		}
+
 		CoreMetadata m = core.get(0,0);
-		
 		// correct T and Z dimension
 		int sizeT= m.sizeT;
 		int sizeZ=m.sizeZ;
 		m.sizeT=sizeZ;
 		m.sizeZ=sizeT;
-		
-		String filename = id.substring(id.lastIndexOf(File.separator) + 1);
-		filename = filename.substring(0, filename.indexOf('.'));
 
-		// look for other files in the dataset
-//		findCompanionFiles();
-//		parseCompanionExperimentFileNames(filename);
+		parseFileNameMetaData(id);
 		initMetadata();
-		
-		
-//		OME omeXML=new OME();
-//		omeXML.addImage(makeImage(0));
-//		omeXML=addAdditionalMetaData(omeXML,makeFilterMetadata());
-//		
-//		System.out.println("Create file: "+compFile.getAbsolutePath());
-//	    File companionOMEFile = new File(compFile.getAbsolutePath());
-//	    companionOMEFile.createNewFile();
-//	    System.out.println("Write test companion.ome to: "+companionOMEFile.getAbsolutePath());
-//	    try {
-//			
-//			DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
-//		    DocumentBuilder parser = factory.newDocumentBuilder();
-//		    Document document = parser.newDocument();
-//		    // Produce a valid OME DOM element hierarchy
-//		    Element root = omeXML.asXMLElement(document);
-//		    root.setAttribute("xmlns", "http://www.openmicroscopy.org/Schemas/OME/2016-06");
-//		    root.setAttribute("xmlns:xsi", "http://www.w3.org/2001/XMLSchema-instance");
-//		    root.setAttribute("xsi:schemaLocation", "http://www.openmicroscopy.org/Schemas/OME/2016-06" + 
-//		    " " + "http://www.openmicroscopy.org/Schemas/OME/2016-06/ome.xsd");
-//		    document.appendChild(root);
-//		    
-//		    // Write the OME DOM to the requested file
-//		    OutputStream stream = new FileOutputStream(companionOMEFile);
-//		    stream.write(docAsString(document).getBytes());
-//		} catch (Exception e) {
-//			// TODO Auto-generated catch block
-//			e.printStackTrace();
-//		}
-//		
-//
-//	    
-////	    System.out.println("Reading file into memory from disk...");
-////	    int fileSize = (int) companionOMEFile.length();
-////	    DataInputStream in = new DataInputStream(new FileInputStream(companionOMEFile));
-////	    byte[] inBytes = new byte[fileSize];
-////	    in.readFully(inBytes);
-////	    System.out.println(fileSize + " bytes read.");
-////	    
-////	 // determine input file suffix
-////	    String fileName = companionOMEFile.getName();
-////	    int dot = fileName.lastIndexOf(".");
-////	    String suffix = ".companion.ome";//dot < 0 ? "" : fileName.substring(dot);
-////
-////	    // map input id string to input byte array
-////	    String inId = "inBytes" + suffix;
-////	    Location.mapFile(inId, new ByteArrayHandle(inBytes));
-//	    
-//	    OMETiffReader reader = new OMETiffReader();
-//	    reader.setId(compFile.getAbsolutePath());
-
-	}
-
-	private OME addAdditionalMetaData(OME omeXML, MetadataStore store) throws FormatException {
-		if (store instanceof MetadataRetrieve) {
-			try {
-				ServiceFactory factory = new ServiceFactory();
-				OMEXMLService service = factory.getInstance(OMEXMLService.class);
-				String xml = service.getOMEXML(service.asRetrieve(store));
-				OMEXMLMetadataRoot root = (OMEXMLMetadataRoot) store.getRoot();
-				IMetadata meta = service.createOMEXMLMetadata(xml);
-
-				Instrument exportInstr = new Instrument(root.getInstrument(series));
-				omeXML.addInstrument(exportInstr);
-			}catch (ServiceException | DependencyException e) {
-				throw new FormatException(e);
-			}
-		}
-		return omeXML;
-	}
-	
-	private void convertToXML(MetadataStore store)  throws FormatException, IOException {
-		
-		if (store instanceof MetadataRetrieve) {
-			try {
-				ServiceFactory factory = new ServiceFactory();
-				OMEXMLService service = factory.getInstance(OMEXMLService.class);
-				String xml = service.getOMEXML(service.asRetrieve(store));
-				OMEXMLMetadataRoot root = (OMEXMLMetadataRoot) store.getRoot();
-				IMetadata meta = service.createOMEXMLMetadata(xml);
-
-				Instrument exportInstr = new Instrument(root.getInstrument(series));
-				Image exportImage = new Image(root.getImage(series));
-				Pixels exportPixels = new Pixels(root.getImage(series).getPixels());
-				exportPixels.setBinData(series, null);
-				exportImage.setPixels(exportPixels);
-
-				StructuredAnnotations exportStructAnnot=new StructuredAnnotations(root.getStructuredAnnotations());
-
-				newRoot = (OMEXMLMetadataRoot) meta.getRoot();
-				while (newRoot.sizeOfImageList() > 0) {
-					newRoot.removeImage(newRoot.getImage(0));
-				}
-				while (newRoot.sizeOfPlateList() > 0) {
-					newRoot.removePlate(newRoot.getPlate(0));
-				}
-				newRoot.addImage(exportImage);
-				newRoot.addInstrument(exportInstr);
-				newRoot.setStructuredAnnotations(exportStructAnnot);
-				meta.setRoot(newRoot);
-				//				 meta.setPixelsSizeX(new PositiveInteger(width), 0);
-				//				 meta.setPixelsSizeY(new PositiveInteger(height), 0);
-
-
-				//				 writer.setMetadataRetrieve((MetadataRetrieve) meta);
-
-
-			}
-			catch (ServiceException | DependencyException e) {
-				throw new FormatException(e);
-			}
-		}
 	}
 
 
@@ -855,144 +647,43 @@ public class LatticeScopeTifReader extends BaseTiffReader {
 			    return os.toString();
 	}
 
-	private Image makeImage(int index) {
-		
-		CoreMetadata m = core.get(0,0);
-		
-		 // Create <Image/>
-	    Image image = new Image();
-	    image.setID("Image:" + index);
-	    // Create <Pixels/>
-	    Pixels pixels = new Pixels();
-	    pixels.setID("Pixels:" + index);
-	    pixels.setSizeX(new PositiveInteger(m.sizeX));
-	    pixels.setSizeY(new PositiveInteger(m.sizeY));
-	    pixels.setSizeZ(new PositiveInteger(m.sizeZ));
-	    if(tiffDataFNames!=null && tiffDataFNames.size()>0) {
-	    	pixels.setSizeC(new PositiveInteger(tiffDataFNames.size()));
-	    	System.out.println("T: "+tiffDataFNames.get(0).size());
-	    	if(tiffDataFNames.get(0)!=null && tiffDataFNames.get(0).size()>0) {
-	    		pixels.setSizeT(new PositiveInteger(tiffDataFNames.get(0).size()));
-	    	}
-	    }else {
-	    	pixels.setSizeC(new PositiveInteger(1));
-	    	pixels.setSizeT(new PositiveInteger(1));
-	    }
-	    
-	    pixels.setPhysicalSizeX(new Length((103.5/1000), UNITS.MICROMETER));
-	    pixels.setPhysicalSizeY(new Length((103.5/1000), UNITS.MICROMETER));
-	    pixels.setPhysicalSizeZ(null);
-	    pixels.setDimensionOrder(DimensionOrder.XYZCT);
-	    pixels.setType(PixelType.UINT16);
-	  
-	    
-	    if(tiffDataFNames!=null && !tiffDataFNames.isEmpty()) {
-	    	// Create <TiffData/>
-	    	for(int ch =0; ch<tiffDataFNames.size();ch++) {
-	    		//		    // Create <Channel/> under <Pixels/>
-	    		Channel channel = new Channel();
-	    		channel.setID("Channel:" + ch);
-	    		channel.setName("ch"+ch);
-	    		pixels.addChannel(channel);
-	    		
-	    		List<String> fNameTimes=tiffDataFNames.get(ch);
-	    		System.out.println("CH: "+ch+" - #T: "+fNameTimes.size());
-	    		for(int t=0; t<fNameTimes.size();t++) {
-	    			TiffData tiffData = new TiffData();
-	    			tiffData.setFirstC(new NonNegativeInteger(ch));
-	    			tiffData.setFirstT(new NonNegativeInteger(t));
-	    			// Create <UUID/>
-	    			UUID uuid = new UUID();
-	    			uuid.setFileName(fNameTimes.get(t));
 
-	    			tiffData.setUUID(uuid);
-	    			pixels.addTiffData(tiffData);
-	    		}
-	    	}
 
-	    }
 
-	    image.setPixels(pixels);
-	 
-	    return image;
+	private String parseExcitationWavelength(String file) {
+		String[] infos=file.split("_");
+		Length excitationW=null;
+		for(int i=0; i<infos.length;i++) {
+			if (infos[i].contains("ch")) {
+				//exc wavelenght: ch_index+2
+				excitationW = FormatTools.getExcitationWavelength(Double.valueOf(infos[i + 2].substring(0, infos[i + 2].length() - 2)));
+				//acq timepoint: ch_index+3
+			}
+		}
+		return String.valueOf(excitationW.value());
 	}
 
-	
-	private void parseExperimentName() {
-		Location baseFile = new Location(currentId).getAbsoluteFile();
+	private String parseDetectorModel(String fileName){
+		if(fileName.contains("CamA"))
+			return "CamA";
+		if(fileName.contains("CamB"))
+			return "CamB";
+		return null;
+	}
+
+
+	private void parseExperimentName(String id) {
+		Location baseFile = new Location(id).getAbsoluteFile();
 		Location parent = baseFile.getParentFile();
+
+		// deskewed or decon file?
+		if(!checkFileNamePattern(id,FILENAME_DATE_PATTERN)){
+			parent = parent.getParentFile();
+		}
 		
 		experimentDir=parent;
 		experimentName=getExperimentName(baseFile.getName());
 	}
-
-	private void findCompanionFiles() {
-		//TODO: that can be nicer implement
-		File[] tiffs = new File(experimentDir.getAbsolutePath()).listFiles(new ImageFileFilter(experimentName));
-		files = new String[tiffs.length];
-		int k=0;
-		for(File file : tiffs) {
-			String path=file.getName();
-			if(path.endsWith("msecAbs.tif")) {
-				if(path.contains("_Settings")) {
-					metaDataFile=path;
-				}else {
-					files[k]=path;
-					System.out.println("Companion file: "+path+":: "+k);
-					k++;
-				}
-			}
-		}
-	}
-
-	
-//	private Image makeImage() {
-//	    // Create <Image/>
-//	    Image image = new Image();
-//	    image.setID(InOutCurrentTest.IMAGE_ID);
-////	    ListAnnotation listAnnotation = new ListAnnotation();
-////	    listAnnotation.setID(InOutCurrentTest.IMAGE_LIST_ANNOTATION_ID);
-////	    listAnnotation.setNamespace(InOutCurrentTest.GENERAL_ANNOTATION_NAMESPACE);
-////	    annotations.addListAnnotation(listAnnotation);
-////	    BooleanAnnotation annotation = new BooleanAnnotation();
-////	    annotation.setID(InOutCurrentTest.IMAGE_ANNOTATION_ID);
-////	    annotation.setValue(InOutCurrentTest.IMAGE_ANNOTATION_VALUE);
-////	    annotation.setNamespace(InOutCurrentTest.GENERAL_ANNOTATION_NAMESPACE);
-////	    listAnnotation.linkAnnotation(annotation);
-////	    image.linkAnnotation(listAnnotation);
-////	    annotations.addBooleanAnnotation(annotation);
-//	    // Create <Pixels/>
-//	    Pixels pixels = new Pixels();
-//	    pixels.setID(InOutCurrentTest.PIXELS_ID);
-//	    pixels.setSizeX(new PositiveInteger(InOutCurrentTest.SIZE_X));
-//	    pixels.setSizeY(new PositiveInteger(InOutCurrentTest.SIZE_Y));
-//	    pixels.setSizeZ(new PositiveInteger(InOutCurrentTest.SIZE_Z));
-//	    pixels.setSizeC(new PositiveInteger(InOutCurrentTest.SIZE_C));
-//	    pixels.setSizeT(new PositiveInteger(InOutCurrentTest.SIZE_T));
-//	    pixels.setDimensionOrder(InOutCurrentTest.DIMENSION_ORDER);
-//	    pixels.setType(InOutCurrentTest.PIXEL_TYPE);
-//	   
-//	    // Create <TiffData/>
-//	    TiffData tiffData = new TiffData();
-//	    pixels.addTiffData(tiffData);
-//	    // Create <Channel/> under <Pixels/>
-//	    for (int i = 0; i < InOutCurrentTest.SIZE_C; i++) {
-//	      Channel channel = new Channel();
-//	      channel.setID("Channel:" + i);
-//	      if (i == 0) {
-//	        XMLAnnotation channelAnnotation = new XMLAnnotation();
-//	        channelAnnotation.setID(InOutCurrentTest.CHANNEL_ANNOTATION_ID);
-//	        channelAnnotation.setValue(InOutCurrentTest.CHANNEL_ANNOTATION_VALUE);
-//	        channelAnnotation.setNamespace(InOutCurrentTest.GENERAL_ANNOTATION_NAMESPACE);
-//	        channel.linkAnnotation(channelAnnotation);
-//	        annotations.addXMLAnnotation(channelAnnotation);
-//	      }
-//	      pixels.addChannel(channel);
-//	    }
-//	    // Put <Pixels/> under <Image/>
-//	    image.setPixels(pixels);
-//	    return image;
-//	  }
 
 
 	/**
@@ -1017,36 +708,7 @@ public class LatticeScopeTifReader extends BaseTiffReader {
 	public void close(boolean fileOnly) throws IOException {
 		super.close(fileOnly);
 		if (!fileOnly) {
-			files = null;
+//			files = null;
 		}
 	}
-
-
-	/**
-	 * A class that implements the Java FileFilter interface.
-	 */
-	class ImageFileFilter implements FileFilter
-	{
-		private final String[] okFileExtensions = new String[] {"tif","_settings.txt"};
-		private String filterName;
-
-		public ImageFileFilter(String name) {
-			filterName=name;
-		}
-
-		public boolean accept(File file)
-		{
-			for (String extension : okFileExtensions)
-			{
-				if (file.getName().toLowerCase().endsWith(extension) && file.getName().contains(filterName))
-				{
-					return true;
-				}
-			}
-			return false;
-		}
-	}
-	
-	
-	
 }
