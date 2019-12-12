@@ -1,5 +1,7 @@
 package loci.formats.in;
 
+import loci.common.ByteArrayHandle;
+import loci.formats.*;
 import loci.formats.meta.IMetadata;
 import loci.formats.meta.MetadataRetrieve;
 import loci.formats.meta.MetadataStore;
@@ -25,10 +27,6 @@ import ome.xml.model.primitives.NonNegativeInteger;
 import ome.xml.model.primitives.PercentFraction;
 import ome.xml.model.primitives.PositiveInteger;
 import ome.xml.model.primitives.Timestamp;
-import loci.formats.CoreMetadata;
-import loci.formats.FormatException;
-import loci.formats.FormatTools;
-import loci.formats.MetadataTools;
 import loci.common.RandomAccessInputStream;
 import loci.common.services.DependencyException;
 import loci.common.services.ServiceException;
@@ -92,6 +90,11 @@ public class LatticeScopeTifReader extends BaseTiffReader {
 	/** Helper readers. */
 	protected MinimalTiffReader tiff;
 
+	/** bftools option*/
+	public static final String CREATE_COMPANION_KEY =
+			"latticescope.createcompanion";
+	public static final boolean CREATE_COMPANION_DEFAULT = true;
+
 	/** Name of experiment metadata file */
 	private String metaDataFile;
 
@@ -104,13 +107,18 @@ public class LatticeScopeTifReader extends BaseTiffReader {
 	private String detectorModel;
 	private Length excitationWavelength;
 	private Double magnification;
+	private Map<String,LightSourceSettings> lightSrcMap;
 
 	/** class of tags in file */
 	private String tagClass;
 	/** tagname of parent node in file*/
 	private String parentTag;
+
+	private OME omeXML;
 		
 	private String SETTINGS_FILE = "_Settings.txt";
+	private String DESKEWED_DIR ="Deskewed";
+	private String DECON_DIR = "GPUDecon";
 
 	private final static Pattern FILENAME_DATE_PATTERN = Pattern.compile(".*_ch.*_stack.*_.*nm_.*msec_.*msecAbs.tif");
     private final static Pattern FILENAME_DATE_PATTERN_DESKEWED = Pattern.compile(".*_ch.*_stack.*_.*nm_.*msec_.*msecAbs_.*deskewed.*.tif");
@@ -146,7 +154,6 @@ public class LatticeScopeTifReader extends BaseTiffReader {
 	/* @see loci.formats.IFormatReader#isThisType(String, boolean) */
 	@Override
 	public boolean isThisType(String name, boolean open) {
-
 		if (!open) return false; // not allowed to touch the file system
 
 		if(!checkFileNamePattern(name,FILENAME_DATE_PATTERN)) {
@@ -170,9 +177,7 @@ public class LatticeScopeTifReader extends BaseTiffReader {
 		if(!settingsFile.exists()){
 			return false;
 		}
-
 		return true;
-
 	}
 
 	private boolean checkFileNamePattern(String name, Pattern filenameDatePattern) {
@@ -182,6 +187,14 @@ public class LatticeScopeTifReader extends BaseTiffReader {
 		return false;
 	}
 
+	// there is a possibility to append an option to reader call ( example zeissczi.autostitch -> ZeissCZIReader)
+	public boolean createCompanionFiles(){
+		MetadataOptions options = getMetadataOptions();
+		if (options instanceof DynamicMetadataOptions) {
+			return ((DynamicMetadataOptions) options).getBoolean(CREATE_COMPANION_KEY, CREATE_COMPANION_DEFAULT);
+		}
+		return CREATE_COMPANION_DEFAULT;
+	}
 
 	/**
 	 * Parse filename to get additional information
@@ -629,6 +642,252 @@ public class LatticeScopeTifReader extends BaseTiffReader {
 
 		parseFileNameMetaData(id);
 		initMetadata();
+
+		generateCompanionFiles();
+	}
+
+	private void generateCompanionFiles() throws IOException, FormatException {
+		Location deconFPath = new Location(experimentDir,DECON_DIR);
+		Location deskewedFPath = new Location(experimentDir,DESKEWED_DIR);
+
+		generateCompanionXML(experimentDir,true);
+		if( deskewedFPath.exists()){
+			generateCompanionXML(deskewedFPath,false);
+		}
+		if( deconFPath.exists()){
+			generateCompanionXML(deconFPath,false);
+		}
+	}
+
+	private void generateCompanionXML(Location dir, boolean raw) throws IOException, FormatException {
+		List<String> ext=new ArrayList<>();
+		String compName=experimentName;
+		if(raw){
+			ext.add(experimentName);
+		}else {
+			ext =getAvailableFileExtensions(dir, experimentName);
+		}
+		for(String myExt:ext) {
+			System.out.println("LATTICE READER: working on "+myExt);
+			String compNameNew = myExt;
+			if(!compName.equals(myExt)){
+				compNameNew = compName+"_"+myExt.substring(0,myExt.lastIndexOf(".tif"));
+			}
+			Location compFile = new Location(dir, compNameNew+".companion.ome");
+			if(compFile.exists()) {
+				System.out.println("LATTICE READER: generateCompanionFile() file still exists " + dir.getAbsolutePath());
+				return;
+			}
+			File[] files = findCompanionFiles(dir,myExt);
+
+			if(files !=null && files.length>0) {
+				LatticeScopeTifHelperReader helperReader= new LatticeScopeTifHelperReader();
+				helperReader.setId(files[0].getAbsolutePath());
+				CoreMetadata myCore=new CoreMetadataList(helperReader.getCoreMetadataList()).get(0,0);
+				Map<Integer, Map<Integer, String>> dimensionMap = parseCompanionExperimentFileNames(files);
+				createCompanionFile(compFile, dimensionMap,myCore);
+				//super.initFile(compFile.getAbsolutePath());
+			}
+		}
+	}
+
+	private Image makeImage(int index, Map<Integer,Map<Integer,String>> dimensionMap, CoreMetadata m) {
+		// get first image to read out core metadata
+
+		//CoreMetadata m = core.get(0,0);
+		lightSrcMap = new HashMap<>();
+		String myDetectorModel=null;
+		// Create <Image/>
+		Image image = new Image();
+		image.setID("Image:" + index);
+		// Create <Pixels/>
+		Pixels pixels = new Pixels();
+		pixels.setID("Pixels:" + index);
+		pixels.setSizeX(new PositiveInteger(m.sizeX));
+		pixels.setSizeY(new PositiveInteger(m.sizeY));
+		pixels.setSizeZ(new PositiveInteger(m.sizeZ));
+
+		if(dimensionMap!=null && dimensionMap.size()>0) {
+			pixels.setSizeC(new PositiveInteger(dimensionMap.size()));
+			if(dimensionMap.get(0)!=null && dimensionMap.get(0).size()>0) {
+				pixels.setSizeT(new PositiveInteger(dimensionMap.get(0).size()));
+			}
+		}else {
+			pixels.setSizeC(new PositiveInteger(1));
+			pixels.setSizeT(new PositiveInteger(1));
+		}
+
+		pixels.setPhysicalSizeX(new Length((103.5/1000), UNITS.MICROMETER));
+		pixels.setPhysicalSizeY(new Length((103.5/1000), UNITS.MICROMETER));
+		pixels.setPhysicalSizeZ(null);
+		pixels.setDimensionOrder(DimensionOrder.XYZCT);
+		pixels.setType(PixelType.UINT16);
+
+
+		if(dimensionMap!=null && !dimensionMap.isEmpty()) {
+			// Create <TiffData/>
+			for(int ch =0; ch<dimensionMap.size();ch++) {
+				Map<Integer,String> timePoints=dimensionMap.get(ch);
+				if(timePoints!=null && timePoints.size()>0) {
+					//		    // Create <Channel/> under <Pixels/>
+					Channel channel = new Channel();
+					channel.setID("Channel:" + ch);
+					channel.setName("ch" + ch);
+
+					for (int t = 0; t < timePoints.size(); t++) {
+						if(timePoints.get(t)!=null) {
+							TiffData tiffData = new TiffData();
+							tiffData.setFirstC(new NonNegativeInteger(ch));
+							tiffData.setFirstT(new NonNegativeInteger(t));
+							// Create <UUID/>
+							UUID uuid = new UUID();
+							uuid.setFileName(timePoints.get(t));
+
+							tiffData.setUUID(uuid);
+							pixels.addTiffData(tiffData);
+
+							String excitationW = parseExcitationWavelength(timePoints.get(t));
+
+							if(excitationW!=null && !lightSrcMap.containsKey(excitationW)){
+								Length excitationW_val = new Length(Double.valueOf(excitationW),UNITS.MILLIMETER);
+								LightSource lSrc= createLightSource(excitationW_val,ch);
+								if(lSrc!=null) {
+									omeXML.getInstrument(index).addLightSource(lSrc);
+									LightSourceSettings lSett = new LightSourceSettings();
+									lSett.setID(lSrc.getID());
+									channel.setLightSourceSettings(lSett);
+									channel.setExcitationWavelength(excitationW_val);
+									lightSrcMap.put(excitationW,lSett);
+								}
+							}
+
+							if(myDetectorModel ==null) {
+								myDetectorModel = parseDetectorModel(timePoints.get(t));
+							}
+						}
+
+					}
+					if(myDetectorModel!=null) {
+						Detector det = createDetector(myDetectorModel,ch);
+						omeXML.getInstrument(index).addDetector(det);
+						DetectorSettings dSett = new DetectorSettings();
+						dSett.setID(det.getID());
+						channel.setDetectorSettings(dSett);
+					}
+					pixels.addChannel(channel);
+				}
+			}
+		}
+
+		image.setPixels(pixels);
+		image.linkInstrument(omeXML.getInstrument(index));
+
+		setObjective(omeXML.getInstrument(index));
+		ObjectiveSettings objSett = new ObjectiveSettings();
+		objSett.setID(omeXML.getInstrument(index).getObjective(0).getID());
+		image.setObjectiveSettings(objSett);
+
+		return image;
+	}
+	private void createCompanionFile(Location compFile,Map<Integer, Map<Integer, String>> dimensionMap,
+									 CoreMetadata myCore) throws FormatException, IOException{
+		System.out.println("Create file: "+compFile.getAbsolutePath());
+		File companionOMEFile = new File(compFile.getAbsolutePath());
+		companionOMEFile.createNewFile();
+
+		try {
+			omeXML = new OME();
+			Instrument instr = new Instrument();
+			instr.setID(MetadataTools.createLSID("Instrument", 0));
+			omeXML.addInstrument(instr);
+			omeXML.addImage(makeImage(0, dimensionMap,myCore));
+			//omeXML = addAdditionalMetaData(omeXML);
+
+			DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+			DocumentBuilder parser = factory.newDocumentBuilder();
+			Document document = parser.newDocument();
+			// Produce a valid OME DOM element hierarchy
+			Element root = omeXML.asXMLElement(document);
+			root.setAttribute("xmlns", "http://www.openmicroscopy.org/Schemas/OME/2016-06");
+			root.setAttribute("xmlns:xsi", "http://www.w3.org/2001/XMLSchema-instance");
+			root.setAttribute("xsi:schemaLocation", "http://www.openmicroscopy.org/Schemas/OME/2016-06" +
+					" " + "http://www.openmicroscopy.org/Schemas/OME/2016-06/ome.xsd");
+			document.appendChild(root);
+
+			// Write the OME DOM to the requested file
+			OutputStream stream = new FileOutputStream(companionOMEFile);
+			stream.write(docAsString(document).getBytes());
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+	}
+
+	/**
+	 * check companion channel and stack files in the directory
+	 * @param files
+	 * @return map of (chNr, map(stackNr,FName))
+	 */
+	private Map<Integer, Map<Integer, String>> parseCompanionExperimentFileNames(File[] files)
+	{
+		Map<Integer,Map<Integer,String>> tiffDataFNames=new HashMap<>();
+
+		for(int indexF=0; indexF<files.length; indexF++)
+		{
+			String fname=files[indexF].getName();
+			if(fname!=null && !fname.contains("Settings"))
+			{
+				String infos=fname.substring(fname.lastIndexOf(experimentName)+experimentName.length()+1,fname.length());
+
+				// read out number of channels _chxx
+				if (infos.contains("_ch")) {
+					String substringCH = infos.substring(infos.indexOf("_ch")+1, infos.length());
+					String channelName = substringCH.substring(2, substringCH.indexOf("_"));
+					if (channelName != null && !channelName.isEmpty()) {
+						Map<Integer, String> chMap = tiffDataFNames.get(Integer.valueOf(channelName));
+						if (chMap == null) {
+							chMap = new HashMap<>();
+						}
+						//read out number of stacks _stackxxxx
+						if (infos.contains("_stack")) {
+							String substringST = infos.substring(infos.indexOf("_stack")+1, infos.length());
+							String stackNumber = substringST.substring(5, substringST.indexOf("_"));
+							if (stackNumber != null && !stackNumber.isEmpty()) {
+								chMap.put(Integer.valueOf(stackNumber), fname);
+								tiffDataFNames.put(Integer.valueOf(channelName), chMap);
+							}
+						}
+					}
+				}
+			}
+		}
+
+		return tiffDataFNames;
+	}
+
+	/**
+	 * Set path to file *_Settings.txt
+	 */
+	private File[] findCompanionFiles(Location dir,String filterName) {
+		//TODO: that can be nicer implement
+		File[] files = new File(dir.getAbsolutePath()).listFiles(new ImageFileFilter(filterName));
+		return files;
+	}
+
+	private List<String> getAvailableFileExtensions(Location dir,String filterName){
+		File[] tiffs = new File(dir.getAbsolutePath()).listFiles(new ImageFileFilter(filterName));
+		List<String> ext = new ArrayList<>();
+		for(File file : tiffs) {
+			String fPath = file.getName();
+			String fName = fPath.substring(0,fPath.lastIndexOf("."));
+			if (fName.lastIndexOf("msecAbs") + 7 < fName.length()) {
+				String extension = fPath.substring(fPath.lastIndexOf("msecAbs") + 7, fPath.length());
+				if (!ext.contains(extension)) {
+					ext.add(extension);
+				}
+			}
+		}
+		return ext;
 	}
 
 
@@ -709,6 +968,32 @@ public class LatticeScopeTifReader extends BaseTiffReader {
 		super.close(fileOnly);
 		if (!fileOnly) {
 //			files = null;
+		}
+	}
+
+	/**
+	 * A class that implements the Java FileFilter interface.
+	 */
+	class ImageFileFilter implements FileFilter
+	{
+		private final String[] okFileExtensions = new String[] {"tif"};
+		private String filterName;
+
+		public ImageFileFilter(String name) {
+			filterName=name;
+		}
+
+		public boolean accept(File file)
+		{
+			for (String extension : okFileExtensions)
+			{
+				if (file.getName().toLowerCase().endsWith(extension) && file.getName().contains(filterName))
+				{
+					//System.out.println("ImageFileFilter:: accept: "+file.getName());
+					return true;
+				}
+			}
+			return false;
 		}
 	}
 }
