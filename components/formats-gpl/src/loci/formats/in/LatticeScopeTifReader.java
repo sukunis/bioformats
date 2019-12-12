@@ -681,17 +681,20 @@ public class LatticeScopeTifReader extends BaseTiffReader {
 			File[] files = findCompanionFiles(dir,myExt);
 
 			if(files !=null && files.length>0) {
+				LatticeScopeTifHelperReader helperReader= new LatticeScopeTifHelperReader();
+				helperReader.setId(files[0].getAbsolutePath());
+				CoreMetadata myCore=new CoreMetadataList(helperReader.getCoreMetadataList()).get(0,0);
 				Map<Integer, Map<Integer, String>> dimensionMap = parseCompanionExperimentFileNames(files);
-				createCompanionFile(compFile, dimensionMap);
+				createCompanionFile(compFile, dimensionMap,myCore);
 				//super.initFile(compFile.getAbsolutePath());
 			}
 		}
 	}
 
-	private Image makeImage(int index, Map<Integer,Map<Integer,String>> dimensionMap ) {
-
+	private Image makeImage(int index, Map<Integer,Map<Integer,String>> dimensionMap, CoreMetadata m) {
 		// get first image to read out core metadata
-		CoreMetadata m = core.get(0,0);
+
+		//CoreMetadata m = core.get(0,0);
 		lightSrcMap = new HashMap<>();
 		String myDetectorModel=null;
 		// Create <Image/>
@@ -786,7 +789,8 @@ public class LatticeScopeTifReader extends BaseTiffReader {
 
 		return image;
 	}
-	private void createCompanionFile(Location compFile,Map<Integer, Map<Integer, String>> dimensionMap) throws FormatException, IOException{
+	private void createCompanionFile(Location compFile,Map<Integer, Map<Integer, String>> dimensionMap,
+									 CoreMetadata myCore) throws FormatException, IOException{
 		System.out.println("Create file: "+compFile.getAbsolutePath());
 		File companionOMEFile = new File(compFile.getAbsolutePath());
 		companionOMEFile.createNewFile();
@@ -796,7 +800,7 @@ public class LatticeScopeTifReader extends BaseTiffReader {
 			Instrument instr = new Instrument();
 			instr.setID(MetadataTools.createLSID("Instrument", 0));
 			omeXML.addInstrument(instr);
-			omeXML.addImage(makeImage(0, dimensionMap));
+			omeXML.addImage(makeImage(0, dimensionMap,myCore));
 			//omeXML = addAdditionalMetaData(omeXML);
 
 			DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
