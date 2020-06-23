@@ -95,9 +95,15 @@ public class APLReader extends FormatReader {
         catch (NullPointerException e) {
           return false;
         }
+        
+        try {
         Location aplFile = new Location(parent, parent.getName() + ".apl");
         return aplFile.exists();
+        }catch(NullPointerException e) {
+        	LOGGER.error("ERROR: Location.getName() has problems with path on windows share for "+name+"\n skip APLReader");
+        	return false;
       }
+    }
     }
     return false;
   }

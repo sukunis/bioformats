@@ -80,8 +80,17 @@ public class PhotoshopTiffReader extends BaseTiffReader {
   @Override
   public boolean isThisType(RandomAccessInputStream stream) throws IOException {
     TiffParser tp = new TiffParser(stream);
-    tp.setDoCaching(false);
+    //tp.setDoCaching(false);
     IFD ifd = tp.getFirstIFD();
+    if (ifd == null) return false;
+
+    String softwareStr = ifd.getIFDTextValue(IFD.SOFTWARE);
+    System.out.println("Check isThisType of PhotoshopTiff: "+softwareStr);
+    if(softwareStr!=null && softwareStr.trim().contains("Photoshop")) return true;
+
+    tp = new TiffParser(stream);
+    tp.setDoCaching(false);
+    ifd = tp.getFirstIFD();
     if (ifd == null) return false;
     return ifd.containsKey(IMAGE_SOURCE_DATA);
   }

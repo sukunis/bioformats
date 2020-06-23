@@ -152,6 +152,7 @@ loci.formats.in.PCORAWReader          # pcoraw
 loci.formats.in.VentanaReader         # bif
 
 # TIFF-based readers with slow isThisType
+loci.formats.in.PhotoshopTiffReader   # tif
 loci.formats.in.OMETiffReader         # tif
 loci.formats.in.PyramidTiffReader     # tif, tiff
 loci.formats.in.MIASReader            # tif
@@ -166,7 +167,6 @@ loci.formats.in.ImprovisionTiffReader # tif
 loci.formats.in.MetamorphTiffReader   # tif
 loci.formats.in.NikonTiffReader       # tif
 loci.formats.in.MikroscanTiffReader   # tif
-loci.formats.in.PhotoshopTiffReader   # tif
 loci.formats.in.FEITiffReader         # tif
 loci.formats.in.SimplePCITiffReader   # tif
 loci.formats.in.NikonElementsTiffReader # tif
@@ -177,6 +177,7 @@ loci.formats.in.ZeissTIFFReader # tif
 loci.formats.in.LeicaSCNReader        # scn
 loci.formats.in.VectraReader          # tif, tiff, qptiff
 loci.formats.in.SlidebookTiffReader   # tiff
+loci.formats.in.LatticeScopeTifReader # tif
 loci.formats.in.IonpathMIBITiffReader   # tif, tiff
 
 # standard TIFF reader must go last (it accepts any TIFF)
